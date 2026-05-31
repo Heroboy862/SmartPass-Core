@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "SmartPass registered user registration",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "FullName of passenger"
+        },
+        "email": {
+          "type": "string",
+          "description": "Primary email of passenger"
+        },
+        "accessibilityProfile": {
+          "type": "object",
+          "description": "User specific accessibility configuration profile"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when user signed up"
+        }
+      },
+      "required": ["name", "email"]
+    },
+    "FlightState": {
+      "title": "FlightState",
+      "description": "Customized boarding travel summaries and simulation states",
+      "type": "object",
+      "properties": {
+        "flightNumber": {
+          "type": "string",
+          "description": "Uçuş kodu numarası"
+        },
+        "boardingStatus": {
+          "type": "string",
+          "description": "Boarding status text"
+        },
+        "securityQueueTime": {
+          "type": "integer",
+          "description": "Average queue wait minutes"
+        },
+        "gate": {
+          "type": "string",
+          "description": "Gate code text"
+        },
+        "delayReason": {
+          "type": "string",
+          "description": "Detailed description of active delay situation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of modification"
+        }
+      },
+      "required": ["flightNumber"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Contains user registration profiles with high-contrast accessibility configurations"
+    },
+    "/flights/{flightId}": {
+      "schema": "FlightState",
+      "description": "Persistent flight configurations and operator simulation variables"
+    }
+  }
+}
