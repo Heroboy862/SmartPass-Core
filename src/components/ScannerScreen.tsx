@@ -50,12 +50,14 @@ export default function ScannerScreen({ onScanComplete, onClose }: ScannerProps)
     const interval = setInterval(() => {
       setScanProgress((prev) => {
         if (prev >= 100) {
-          // Send default scanned boarding pass
-          onScanComplete("M1YILMAZ/SELIM E ABC1234 ISTLHRTK 1903 120Y012A0001 147");
+          return 100;
+        }
+        const next = prev + 12;
+        if (next >= 100) {
           clearInterval(interval);
           return 100;
         }
-        return prev + 12;
+        return next;
       });
     }, 400);
 
@@ -66,7 +68,14 @@ export default function ScannerScreen({ onScanComplete, onClose }: ScannerProps)
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [onScanComplete]);
+  }, []);
+
+  // Safe separation of state computation and side effect (KVKK-compliant local parse trigger)
+  useEffect(() => {
+    if (scanProgress >= 100) {
+      onScanComplete("M1YILMAZ/SELIM E ABC1234 ISTLHRTK 1903 120Y012A0001 147");
+    }
+  }, [scanProgress, onScanComplete]);
 
   // Handle flash/torch toggle
   const toggleTorch = () => {
