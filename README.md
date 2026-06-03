@@ -21,6 +21,11 @@ Smart Boarding; mobilize edilmeye elverişli, **DHMİ, İGA, TAV ve HEAŞ** canl
 ### 📷 Yapay Zeka Seyahat Asistanı (Gemini) & Biniş Kartı Tarayıcı
 * **KVKK Uyumlu Kamera**: Tarayıcı aracılığıyla biniş kartlarındaki raw barkod verilerini gerçek zamanlı parselleyerek uçuş ekranına anında bağlar.
 * **Fayda Odaklı Gemini Entegrasyonu**: Yolcunun diline, uçuş hattına (örneğin Londra seferlerine özel Duty-Free teklifleri) ve engelsiz koridor isteklerine uygun mikro-çözümler üreten empati yeteneği yüksek seyahat can yoldaşı.
+* **Akıllı Finansal Rehberlik**: Gemini asistana entegre edilen canlı kur verileri ve terminal USD referans kurguları sayesinde, yolcu seyahat bütçesi, yerel harcamalar veya kur dönüşümleri hakkında sorduğunda asistandan güncel tam değerlerle proaktif bütçeleme ve harcama tavsiyeleri alır.
+
+### 🪙 Dinamik Döviz Kuru Takibi & Çok Bölgeli Transfer Planlaması
+* **Canlı Kur Mini Kartı**: Uçuşun varış konumuna göre o ülkenin yerel para birimini (GBP, USD, EUR, RUB) otomatik tespit eder, canlı döviz kurları API'si (`open.er-api.com`) ile entegre çalışarak Türk Lirası (TRY) karşısındaki güncel değerini bento tarzında tasarlanmış şık bir mini kartta listeler. Yurt içi uçuşlarda ise Duty-Free & lüks alışveriş eğilimleri için Amerikan Doları (USD) referans kurunu proaktif olarak raporlar.
+* **Türkiye Ulusal Transfer Entegrasyonu**: Aktif havalimanı bölgesine göre; İstanbul (Yeni Havalimanı & Sabiha Gökçen), İzmir (ADB), Ankara (ESB), Antalya (AYT) ve Muğla (BJV/DLM) genelinde HAVAİST, HAVAŞ, Muttaş, Belko Air, metro ve entegre tramvay hat önerilerini, saatlik tarife detaylarını ve peron konumlarını dinamik olarak yönetip listeler.
 
 ---
 
