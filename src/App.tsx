@@ -18,31 +18,67 @@ import { db } from "./firebase";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 
 export default function App() {
-  // Shared passenger / layout flow states
-  const [passengerName, setPassengerName] = useState<string | null>(null);
-  const [activeScreen, setActiveScreen] = useState<"login" | "dashboard" | "scanner" | "chat">("login");
-  const [accessibilityProfile, setAccessibilityProfile] = useState<AccessibilityProfile | null>(null);
+  // Shared passenger / layout flow states with secure sessionStorage fallback for session protection
+  const [passengerName, setPassengerName] = useState<string | null>(() => {
+    return sessionStorage.getItem("secure_passengerName");
+  });
+  const [activeScreen, setActiveScreen] = useState<"login" | "dashboard" | "scanner" | "chat">(() => {
+    return (sessionStorage.getItem("secure_activeScreen") as any) || "login";
+  });
+  const [accessibilityProfile, setAccessibilityProfile] = useState<AccessibilityProfile | null>(() => {
+    const saved = sessionStorage.getItem("secure_accessibilityProfile");
+    return saved ? JSON.parse(saved) : null;
+  });
   
   // Real-time Flight Ticket State loaded upon scanning
-  const [flightData, setFlightData] = useState<FlightInfo>({
-    passengerName: "Selim Yılmaz",
-    flightNumber: "TK-1903",
-    from: "IST",
-    fromCity: "İstanbul",
-    to: "LHR",
-    toCity: "Londra",
-    gate: "G-12",
-    seat: "12A",
-    group: "A",
-    biometricVerified: true,
-    boardingStatus: "Boarding Now",
-    boardingProgress: 65,
-    estimatedWalkTime: "6 dk",
-    airline: "Turkish Airlines",
-    airportOperator: "İGA",
-    departureTime: "22:15",
-    securityQueueTime: 12
+  const [flightData, setFlightData] = useState<FlightInfo>(() => {
+    const saved = sessionStorage.getItem("secure_flightData");
+    if (saved) return JSON.parse(saved);
+    return {
+      passengerName: "Selim Yılmaz",
+      flightNumber: "TK-1903",
+      from: "IST",
+      fromCity: "İstanbul",
+      to: "LHR",
+      toCity: "Londra",
+      gate: "G-12",
+      seat: "12A",
+      group: "A",
+      biometricVerified: true,
+      boardingStatus: "Boarding Now",
+      boardingProgress: 65,
+      estimatedWalkTime: "6 dk",
+      airline: "Turkish Airlines",
+      airportOperator: "İGA",
+      departureTime: "22:15",
+      securityQueueTime: 12
+    };
   });
+
+  // Persist session variables securely within sessionStorage to protect against persistent client-side data leaks (KVKK compliance)
+  useEffect(() => {
+    if (passengerName) {
+      sessionStorage.setItem("secure_passengerName", passengerName);
+    } else {
+      sessionStorage.removeItem("secure_passengerName");
+    }
+  }, [passengerName]);
+
+  useEffect(() => {
+    sessionStorage.setItem("secure_activeScreen", activeScreen);
+  }, [activeScreen]);
+
+  useEffect(() => {
+    if (accessibilityProfile) {
+      sessionStorage.setItem("secure_accessibilityProfile", JSON.stringify(accessibilityProfile));
+    } else {
+      sessionStorage.removeItem("secure_accessibilityProfile");
+    }
+  }, [accessibilityProfile]);
+
+  useEffect(() => {
+    sessionStorage.setItem("secure_flightData", JSON.stringify(flightData));
+  }, [flightData]);
 
   // Simulator Variable States
   const [simState, setSimState] = useState({
@@ -392,6 +428,7 @@ export default function App() {
                 onOpenScanner={() => setActiveScreen("scanner")}
                 onOpenChat={() => setActiveScreen("chat")}
                 onLogout={() => {
+                  sessionStorage.clear(); // Clear all transient passenger tokens on logout securely
                   setPassengerName(null);
                   setAccessibilityProfile(null);
                   setActiveScreen("login");

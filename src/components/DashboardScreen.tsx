@@ -7,10 +7,65 @@ import React, { useState } from "react";
 import { 
   Plane, MapPin, Watch, AlertCircle, Sparkles, Navigation, CheckCircle, 
   Compass, Gift, MessageCircleMore, User, QrCode, ArrowRight, RefreshCw, Star,
-  Activity, Shield, BellRing, Lock
+  Activity, Shield, BellRing, Lock, ChevronDown, ChevronUp, Info, Bus, Clock, CreditCard, Map,
+  Coins, ArrowLeftRight
 } from "lucide-react";
 import { FlightInfo, AccessibilityProfile } from "../types";
 import { db } from "../firebase";
+
+export interface TurkeyHub {
+  id: string;
+  name: string;
+  desc: string;
+  provider: string;
+}
+
+const TURKEY_HUBS: TurkeyHub[] = [
+  { id: "istanbul-ist", name: "İstanbul-IST", desc: "İstanbul Yeni Havalimanı", provider: "HAVAİST" },
+  { id: "istanbul-saw", name: "İstanbul-SAW", desc: "Sabiha Gökçen Havalimanı", provider: "Metro, İETT & Havaş" },
+  { id: "izmir", name: "İzmir-ADB", desc: "Adnan Menderes Havalimanı", provider: "HAVAŞ" },
+  { id: "ankara", name: "Ankara-ESB", desc: "Esenboğa Havalimanı", provider: "Belko Air & EGO" },
+  { id: "antalya", name: "Antalya-AYT", desc: "Antalya Havalimanı", provider: "Tram & Havaş" },
+  { id: "mugla", name: "Muğla-BJV/DLM", desc: "Bodrum & Dalaman Bölgesi", provider: "Muttaş & Havaş" }
+];
+
+const getHubShortName = (id: string): string => {
+  switch (id) {
+    case "istanbul-ist": return "İstanbul Yeni Havalimanı";
+    case "istanbul-saw": return "İstanbul Sabiha Gökçen";
+    case "izmir": return "İzmir Adnan Menderes";
+    case "ankara": return "Ankara Esenboğa";
+    case "antalya": return "Antalya Havalimanı";
+    case "mugla": return "Muğla Bölgesi";
+    default: return "Havalimanı";
+  }
+};
+
+const getHubProviderName = (id: string): string => {
+  switch (id) {
+    case "istanbul-ist": return "HAVAİST";
+    case "istanbul-saw": return "İETT / Metro / Havaş";
+    case "izmir": return "HAVAŞ";
+    case "ankara": return "Belko Air / EGO";
+    case "antalya": return "Antray / Havaş";
+    case "mugla": return "Muttaş / Havaş";
+    default: return "Toplu Taşıma";
+  }
+};
+
+const getNextDeparture = (times: string[]) => {
+  const now = new Date();
+  const currentHours = now.getHours();
+  const currentMinutes = now.getMinutes();
+  const currentTotal = currentHours * 60 + currentMinutes;
+
+  const upcoming = times.find(timeStr => {
+    const [h, m] = timeStr.split(":").map(Number);
+    return (h * 60 + m) > currentTotal;
+  });
+
+  return upcoming || times[0];
+};
 import { collection, onSnapshot } from "firebase/firestore";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import TerminalMap from "./TerminalMap";
@@ -33,6 +88,107 @@ export default function DashboardScreen({
   const [showGateMap, setShowGateMap] = useState(false);
   const [showQrTicket, setShowQrTicket] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Find matching initial hub according to passenger ticket origin or destination
+  const getInitialHub = () => {
+    const fromCode = (flightData.from || "").toUpperCase();
+    const toCode = (flightData.to || "").toUpperCase();
+    const fromCity = (flightData.fromCity || "").toLowerCase();
+    const toCity = (flightData.toCity || "").toLowerCase();
+
+    if (fromCode === "ADB" || toCode === "ADB" || fromCity.includes("izmir") || toCity.includes("izmir")) return "izmir";
+    if (fromCode === "ESB" || toCode === "ESB" || fromCity.includes("ankara") || toCity.includes("ankara")) return "ankara";
+    if (fromCode === "AYT" || toCode === "AYT" || fromCity.includes("antalya") || toCity.includes("antalya")) return "antalya";
+    if (fromCode === "SAW" || toCode === "SAW" || fromCity.includes("gökçen") || toCity.includes("gökçen")) return "istanbul-saw";
+    if (fromCode === "BJV" || toCode === "BJV" || fromCode === "DLM" || toCode === "DLM" || fromCity.includes("bodrum") || fromCity.includes("dalaman") || fromCity.includes("muğla")) return "mugla";
+    return "istanbul-ist";
+  };
+
+  const initialHub = getInitialHub();
+  const [selectedHub, setSelectedHub] = useState<string>(initialHub);
+
+  // Set default route key based on calculated default region
+  const getInitialRouteKey = () => {
+    if (initialHub === "izmir") return "havas-mavi";
+    if (initialHub === "ankara") return "belko-442";
+    if (initialHub === "antalya") return "antray-tram";
+    if (initialHub === "istanbul-saw") return "m4-metro";
+    if (initialHub === "mugla") return "muttas-bodrum";
+    return "hvist-14";
+  };
+  const [selectedRoute, setSelectedRoute] = useState<string>(getInitialRouteKey());
+  const [expandedTransport, setExpandedTransport] = useState<boolean>(false);
+
+  // Real-time server-side transportation and shuttle recommendation state
+  const [serverRoutes, setServerRoutes] = useState<any[]>([]);
+  const [serverLoading, setServerLoading] = useState<boolean>(true);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  // Dynamic currency rate state
+  const [currencyData, setCurrencyData] = useState<any>(null);
+  const [currencyLoading, setCurrencyLoading] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    setCurrencyLoading(true);
+    fetch(`/api/currency/rate?toCity=${encodeURIComponent(flightData.toCity || "")}&to=${encodeURIComponent(flightData.to || "")}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Döviz kuru yüklenemedi");
+        return res.json();
+      })
+      .then((data) => {
+        setCurrencyData(data);
+        setCurrencyLoading(false);
+      })
+      .catch((err) => {
+        console.error("Döviz kuru yükleme hatası:", err);
+        setCurrencyLoading(false);
+      });
+  }, [flightData.toCity, flightData.to]);
+
+  // Fetch transport routes and smart suggestions from the background service
+  React.useEffect(() => {
+    setServerLoading(true);
+    setServerError(null);
+    const depTime = flightData.departureTime || "22:15";
+    const destCity = flightData.toCity || "İmzir";
+
+    // Query with hub and flight origin/destination code as context
+    fetch(`/api/transport/schedule?hub=${encodeURIComponent(selectedHub)}&airport=${encodeURIComponent(flightData.from || "IST")}&departureTime=${encodeURIComponent(depTime)}&toCity=${encodeURIComponent(destCity)}`)
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Ulaşım servis bilgisi alınamadı");
+        }
+        return res.json();
+      })
+      .then((data) => {
+        const routes = data.routes || [];
+        setServerRoutes(routes);
+        // If current selectedRoute is not in the fetched routes list, swap to the first available route of this provider
+        if (routes.length > 0) {
+          const matched = routes.find((r: any) => r.id === selectedRoute);
+          if (!matched) {
+            setSelectedRoute(routes[0].id);
+          }
+        }
+        setServerLoading(false);
+      })
+      .catch((err) => {
+        console.error("Ulaşım yükleme hatası:", err);
+        setServerError(err.message);
+        setServerLoading(false);
+      });
+  }, [selectedHub, flightData.departureTime]);
+
+  const currentRoute = serverRoutes.find((r: any) => r.id === selectedRoute) || {
+    name: "Seçili Hat",
+    price: 250,
+    stops: [],
+    times: [],
+    frequency: "30 dakikada bir",
+    platform: "Gelen Yolcu Peronu",
+    recommendedTime: "08:00",
+    rationale: "Ulaşım bağlantı planı ve asistan kalkış tavsiyesi hesaplanıyor."
+  };
 
   // Real-time Firestore airport operator distribution loader state
   const [operatorData, setOperatorData] = useState<{ name: string; value: number; color: string }[]>([]);
@@ -423,6 +579,70 @@ export default function DashboardScreen({
               </p>
             </div>
           </div>
+
+          {/* Destination Exchange Rate Mini Card */}
+          <div className="col-span-2 bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-3xl p-5 border border-white/10 shadow-lg relative overflow-hidden flex flex-col justify-between min-h-[145px] text-left">
+            <div className="absolute right-0 top-0 translate-x-4 -translate-y-4 opacity-10 pointer-events-none">
+              <Coins className="w-24 h-24 text-amber-400" />
+            </div>
+
+            <div className="flex justify-between items-start relative z-10">
+              <div className="flex items-center gap-2">
+                <div className="bg-amber-500/20 p-2 rounded-xl text-amber-450 border border-amber-500/10">
+                  <Coins className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-wider text-amber-400">Canlı Döviz Kuru</p>
+                  <p className="text-[10px] font-medium text-slate-300 leading-none mt-0.5">Finansal Yol Arkadaşı</p>
+                </div>
+              </div>
+              
+              {currencyData && !currencyLoading && (
+                <span className={`text-[8.5px] font-extrabold font-mono uppercase bg-slate-800/80 px-2 py-0.5 rounded border border-white/5 flex items-center gap-1 ${
+                  currencyData.trend === "up" ? "text-emerald-400" : currencyData.trend === "down" ? "text-rose-400" : "text-slate-300"
+                }`}>
+                  <ArrowLeftRight className="w-2.5 h-2.5" />
+                  {currencyData.trend === "up" ? "YÜKSELİŞTE" : currencyData.trend === "down" ? "DÜŞÜŞTE" : "SABİT"}
+                </span>
+              )}
+            </div>
+
+            {currencyLoading ? (
+              <div className="py-2 flex items-center gap-2 text-slate-400 text-xs">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Kur verileri eşitleniyor...</span>
+              </div>
+            ) : currencyData ? (
+              <div className="mt-2.5 relative z-10">
+                {currencyData.isDomestic ? (
+                  <>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-lg font-black tracking-tight text-white font-display">Yurt İçi Uçuş</p>
+                    </div>
+                    <p className="text-[9.5px] text-slate-300 mt-1 leading-relaxed">
+                      Uçuş para birimi <strong className="text-amber-300">Türk Lirası (₺)</strong>. Terminal içi lüks mağazalar ve Duty-Free referans kuru: <span className="font-mono font-bold text-white">1 USD = {currencyData.terminalUsdRate} ₺</span>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-2xl font-black font-display tracking-tight text-amber-400">
+                        1 {currencyData.toCurrency} = <span className="text-white">{currencyData.rate} ₺</span>
+                      </p>
+                    </div>
+                    <div className="flex justify-between items-center mt-1.5 pt-1.5 border-t border-white/10 text-[9.5px] text-slate-400">
+                      <span>{currencyData.currencyName} ({currencyData.symbol})</span>
+                      <span className="font-mono">1 ₺ = {currencyData.inverseRate} {currencyData.toCurrency}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="py-2 text-rose-300 text-xs text-left">
+                Kur verisi yüklenemedi.
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Animated Custom Gate Schematic Map Option */}
@@ -430,26 +650,213 @@ export default function DashboardScreen({
           <TerminalMap flightData={flightData} accessibilityProfile={accessibilityProfile} />
         )}
 
-        {/* Airport Transportation - styled identical to Bento Transfer block */}
-        <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between min-h-[145px]">
-          <div className="flex justify-between items-start">
-            <div className="bg-indigo-50 p-2.5 rounded-2xl text-indigo-600">
-              <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"></path>
-              </svg>
+        {/* Airport Transportation - Beautiful fully-interactive transfer console */}
+        <div id="transport-hub" className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between transition-all duration-300">
+          <div className="flex justify-between items-center pb-3.5 border-b border-slate-100">
+            <div className="flex items-center gap-2.5 text-left">
+              <div className="bg-indigo-50 p-2.5 rounded-2xl text-indigo-600">
+                <Bus className={`w-5 h-5 ${serverLoading ? "animate-bounce" : ""}`} />
+              </div>
+              <div>
+                <span className="text-indigo-600 text-xs font-black uppercase tracking-wider leading-none block">Havalimanı Seferleri</span>
+                <span className="text-[8.5px] font-bold text-slate-400 block mt-1 uppercase">TÜRKİYE ULUSAL TRANSFER VE SEFER SİSTEMİ</span>
+              </div>
             </div>
-            <p className="text-[9px] font-bold text-indigo-600 tracking-wider uppercase">Entegre Hızlı Transfer</p>
-          </div>
-          <div className="text-left mt-3">
-            <h3 className="text-slate-400 text-[9px] font-bold uppercase tracking-wider">HAVAIST • IST-14 Ekspres</h3>
-            <div className="flex justify-between items-baseline mt-1">
-              <p className="text-xl font-black text-slate-900 font-mono">Sıradaki: 21:00</p>
-              <p className="text-xs font-bold text-indigo-900 bg-indigo-50 px-2 py-0.5 rounded-md">180 TL</p>
+            
+            <div className="flex items-center gap-2">
+              {serverLoading && (
+                <span className="text-[9px] font-bold text-indigo-600 animate-pulse bg-indigo-50 px-2.5 py-0.5 rounded-full">Senkronize ediliyor...</span>
+              )}
+              <button 
+                onClick={() => setExpandedTransport(!expandedTransport)}
+                className="text-xs text-indigo-705 hover:text-indigo-900 hover:bg-slate-100 p-1.5 px-3 rounded-full font-black uppercase flex items-center gap-1 cursor-pointer transition-all"
+              >
+                {expandedTransport ? (
+                  <>Dür <ChevronUp className="w-3.5 h-3.5 text-slate-505" /></>
+                ) : (
+                  <>Tümünü Gör <ChevronDown className="w-3.5 h-3.5 text-slate-505" /></>
+                )}
+              </button>
             </div>
-            <p className="text-[8px] bg-slate-100 text-slate-500 rounded px-2 py-1 inline-block mt-2.5 font-bold uppercase tracking-wide">
-              Peron 14 • Kadıköy Merkez
-            </p>
           </div>
+
+          {/* Collapsed minimal preview block */}
+          {!expandedTransport ? (
+            <div className="text-left mt-3 pt-1 flex justify-between items-center">
+              <div>
+                <span className="text-[8px] bg-emerald-100 text-emerald-800 rounded px-1.5 py-0.5 font-bold uppercase tracking-wide inline-flex items-center gap-1 animate-pulse">
+                  ⭐ AeroAI Sefer Tavsiyesi ({getHubShortName(selectedHub)})
+                </span>
+                <h4 className="text-slate-800 text-sm font-black mt-2">
+                  {currentRoute.name}
+                </h4>
+                <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-slate-500 font-semibold">
+                  <span className="flex items-center gap-1 text-indigo-700 font-extrabold bg-indigo-50 px-2 py-0.5 rounded">
+                    💰 {currentRoute.price} TL
+                  </span>
+                  <span>|</span>
+                  <span className="flex items-center gap-1 bg-amber-50 text-amber-805 px-2 py-0.5 rounded font-black border border-amber-205">
+                    🕒 Önerilme Saati: {currentRoute.recommendedTime || "Hesaplanıyor"}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setExpandedTransport(true)}
+                className="w-10 h-10 bg-indigo-50 hover:bg-indigo-100 hover:scale-105 active:scale-95 text-indigo-700 rounded-xl flex items-center justify-center transition-all cursor-pointer"
+                aria-label="Havalimanı ulaşım ve otobüs sefer saatleri detaylarını görüntüleyin"
+              >
+                <ArrowRight className="w-4.5 h-4.5" />
+              </button>
+            </div>
+          ) : (
+            /* Fully Expanded Interactive Transit Core */
+            <div className="mt-4 space-y-4 animate-fade-in text-left">
+              
+              {/* Dynamic Turkish Regional City/Hub Tag Picker */}
+              <div className="space-y-1.5">
+                <label className="text-[8.5px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Aktif Havalimanı Bölgesini Seçin</label>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                  {TURKEY_HUBS.map((hub) => {
+                    const isSelected = selectedHub === hub.id;
+                    const isPassengerLocation = hub.id === initialHub;
+                    return (
+                      <button
+                        key={hub.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedHub(hub.id);
+                        }}
+                        className={`inline-flex items-center gap-1.5 shrink-0 px-3.5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-wide border transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-indigo-900 border-indigo-900 text-white shadow-xs"
+                            : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        {hub.name}
+                        {isPassengerLocation && (
+                          <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-full inline-block ${
+                            isSelected ? "bg-amber-400 text-slate-950 animate-pulse" : "bg-emerald-100 text-emerald-800"
+                          }`}>
+                            KONUMUNUZ
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Route Picker Dropdown */}
+              <div className="space-y-1">
+                <label className="text-[8.5px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Sefer Noktası / Güzergah Seçin</label>
+                <div className="relative">
+                  <select
+                    value={selectedRoute}
+                    onChange={(e) => setSelectedRoute(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800 p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all appearance-none cursor-pointer"
+                  >
+                    {serverRoutes.map((route) => (
+                      <option key={route.id} value={route.id}>
+                        {route.name} - {route.price} TL
+                      </option>
+                    ))}
+                    {serverRoutes.length === 0 && (
+                      <option value={selectedRoute}>Sefer planlamaları yükleniyor...</option>
+                    )}
+                  </select>
+                  <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Route Metric Cards Grid */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-indigo-50/40 p-2.5 rounded-2xl border border-indigo-100/30 flex flex-col justify-center min-h-[58px]">
+                  <Clock className="w-3.5 h-3.5 text-indigo-600 mx-auto mb-1" />
+                  <span className="text-[7.5px] font-bold text-slate-400 uppercase block">Sefer Sıklığı</span>
+                  <p className="text-[10px] font-extrabold text-slate-800 leading-none mt-1">
+                    {currentRoute.frequency}
+                  </p>
+                </div>
+                <div className="bg-amber-50 p-2.5 rounded-2xl border border-amber-200 flex flex-col justify-center min-h-[58px] relative overflow-hidden">
+                  <div className="absolute right-1 top-1 w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping"></div>
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600 mx-auto mb-1" />
+                  <span className="text-[7.5px] font-black text-amber-800 uppercase block">Önerilen Sefer</span>
+                  <p className="text-[11px] font-mono font-black text-slate-900 leading-none mt-1 animate-pulse">
+                    🌟 {currentRoute.recommendedTime}
+                  </p>
+                </div>
+                <div className="bg-slate-50/70 p-2.5 rounded-2xl border border-slate-200/50 flex flex-col justify-center min-h-[58px]">
+                  <MapPin className="w-3.5 h-3.5 text-indigo-900 mx-auto mb-1" />
+                  <span className="text-[7.5px] font-bold text-slate-400 uppercase block">Kalkış Peronu</span>
+                  <p className="text-[8.5px] font-black text-slate-800 leading-none mt-1 truncate">
+                    {currentRoute.platform}
+                  </p>
+                </div>
+              </div>
+
+              {/* Stop Flow (Güzergah Durakları Timeline) */}
+              {currentRoute.stops && currentRoute.stops.length > 0 && (
+                <div className="bg-slate-50 p-4 rounded-3xl border border-slate-150 text-left">
+                  <span className="text-[8.5px] font-extrabold text-slate-400 uppercase tracking-widest block mb-3">🚌 Güzergah Durak Planlaması ({currentRoute.stops.length} Durak)</span>
+                  <div className="relative pl-3.5 border-l border-dashed border-slate-300 ml-1 space-y-3.5">
+                    {currentRoute.stops.map((stop: string, sIdx: number) => {
+                      const isFirst = sIdx === 0;
+                      const isLast = sIdx === (currentRoute.stops.length - 1);
+                      return (
+                        <div key={sIdx} className="relative text-[10px] flex items-center justify-between">
+                          <div className={`absolute -left-[18.5px] top-[4px] w-2 h-2 rounded-full ring-2 ${
+                            isFirst ? "bg-indigo-600 ring-indigo-100" : isLast ? "bg-indigo-900 ring-indigo-50" : "bg-slate-400 ring-white"
+                          }`}></div>
+                          <span className={`font-semibold ${isLast ? "text-indigo-950 font-black" : "text-slate-700"}`}>
+                            {stop}
+                          </span>
+                          {isFirst && <span className="text-[7px] bg-slate-200 text-slate-500 font-bold px-1 rounded">Başlangıç</span>}
+                          {isLast && <span className="text-[7px] bg-indigo-900 text-white font-bold px-1 rounded uppercase">Varış</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Hour Timetable list */}
+              {currentRoute.times && currentRoute.times.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[8.5px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Tüm Gün Entegre Sefer Cetveli ({getHubProviderName(selectedHub)})</span>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 text-center scrollbar-thin">
+                    {currentRoute.times.map((timeStr: string) => {
+                      const isRecommended = timeStr === currentRoute.recommendedTime;
+                      return (
+                        <span
+                          key={timeStr}
+                          className={`inline-block min-w-[56px] py-1.5 rounded-xl font-mono text-[9px] font-bold border transition-all ${
+                            isRecommended
+                              ? "bg-amber-500 border-amber-500 text-slate-950 shadow-sm animate-pulse font-black"
+                              : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
+                          }`}
+                        >
+                          {timeStr}
+                          {isRecommended && <span className="block text-[6px] font-sans uppercase font-black tracking-tight scale-90">ÖNERİLEN</span>}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Smart AI helper warning */}
+              <div className="bg-indigo-50/60 p-3 rounded-2xl border border-indigo-100/40 text-[9.5px] text-indigo-750 font-medium leading-relaxed flex items-start gap-2">
+                <Info className="w-4 h-4 text-indigo-700 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-extrabold text-indigo-950 uppercase text-[9px] tracking-wide mb-0.5">AeroAI Akıllı Entegrasyon Tavsiyesi</p>
+                  Uçuş saatiniz <strong className="text-slate-900 font-mono font-black">{flightData.departureTime}</strong>&apos;dir. 
+                  <p className="mt-1 text-slate-700 font-medium">{currentRoute.rationale}</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Bento AI Companion Advice Card */}

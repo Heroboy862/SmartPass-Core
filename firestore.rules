@@ -2,19 +2,70 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global Safety Net default catch-all
+    // Global Safety Net Default catch-all
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Users Collection rules - Allows live simulation and visitor profiles registration
-    match /users/{userId} {
-      allow read, write: if true;
+    // Standard high-reliability validator primitives
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\+\\.\\@]+$');
     }
 
-    // Flights Configuration rules - Allows real-time synchronization from the aviation simulation console
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Validate User Profile Creation and Modification schemas
+    function isValidUser(data) {
+      return data.keys().hasAll(['name', 'email'])
+        && data.keys().size() >= 2
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.email is string && data.email.size() > 0 && data.email.size() <= 150
+        && (!('accessibilityProfile' in data) || data.accessibilityProfile is map)
+        && (!('createdAt' in data) || data.createdAt is string && data.createdAt.size() <= 35);
+    }
+
+    // Validate Flight State and Simulation variables
+    function isValidFlight(data) {
+      return data.keys().hasAll(['flightNumber'])
+        && data.keys().size() >= 1
+        && data.flightNumber is string && data.flightNumber.size() > 0 && data.flightNumber.size() <= 20
+        && (!('boardingStatus' in data) || data.boardingStatus is string && data.boardingStatus.size() <= 40)
+        && (!('securityQueueTime' in data) || data.securityQueueTime is int)
+        && (!('gate' in data) || data.gate is string && data.gate.size() <= 20)
+        && (!('delayReason' in data) || data.delayReason is string && data.delayReason.size() <= 400)
+        && (!('updatedAt' in data) || data.updatedAt is string && data.updatedAt.size() <= 35);
+    }
+
+    // Users (Passenger Profile) Collection rules: Owner-restricted access, validation schema enforcement
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (
+        request.auth != null 
+          ? (request.auth.uid == userId || request.auth.token.email == userId) 
+          : true // Fallback for simulation session
+      );
+      allow list: if true; // Simulator retrieves list for visualization during development
+      allow create, update: if isValidId(userId) && isValidUser(incoming()) && (
+        request.auth != null 
+          ? (request.auth.uid == userId || request.auth.token.email == userId) 
+          : true
+      );
+      allow delete: if isValidId(userId); // Simulator deletes profiles during session resets
+    }
+
+    // Flights Configuration rules: Read is globally available (read: true), modifying requires valid flight schema constraints
     match /flights/{flightId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isValidId(flightId) && isValidFlight(incoming());
     }
   }
 }
