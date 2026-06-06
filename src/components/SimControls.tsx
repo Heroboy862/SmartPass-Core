@@ -7,10 +7,11 @@ import React from "react";
 import { Sliders, Award, RefreshCw, Send, CheckCircle, Database, AlertTriangle, Trash2, HardDrive, ShieldCheck } from "lucide-react";
 import { db } from "../firebase";
 import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from "firebase/firestore";
+import { BoardingStatus } from "../types";
 
 interface SimState {
   flightNumber: string;
-  boardingStatus: string;
+  boardingStatus: BoardingStatus;
   securityQueueTime: number;
   gate: string;
   delayReason: string;
@@ -62,7 +63,31 @@ export default function SimControls({
 }: SimControlsProps) {
   const [customRaw, setCustomRaw] = React.useState("");
   const [storedUsers, setStoredUsers] = React.useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = React.useState<any[]>([]);
   const [dbError, setDbError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    try {
+      const q = query(collection(db, "audit_logs"));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const logs: any[] = [];
+        snapshot.forEach((doc) => {
+          logs.push({ id: doc.id, ...doc.data() });
+        });
+        logs.sort((a, b) => {
+          const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return tB - tA;
+        });
+        setAuditLogs(logs.slice(0, 15));
+      }, (err) => {
+        console.error("Audit logs onSnapshot error:", err);
+      });
+      return () => unsubscribe();
+    } catch (e: any) {
+      console.error("Error setting up audit logs listener:", e);
+    }
+  }, []);
 
   React.useEffect(() => {
     try {
@@ -139,10 +164,10 @@ export default function SimControls({
             <div>
               <label className="text-xs text-slate-400 block mb-1">Biniş Durumu (Canlı Otorite)</label>
               <div className="grid grid-cols-2 gap-2">
-                {["Waiting", "Boarding Now", "Delayed", "Cancelled"].map((status) => (
+                {["Waiting", "Boarding Now", "Delayed", "Cancelled", "Closed"].map((status) => (
                   <button
                     key={status}
-                    onClick={() => onUpdateSim({ boardingStatus: status })}
+                    onClick={() => onUpdateSim({ boardingStatus: status as BoardingStatus })}
                     className={`text-xs p-2 rounded-lg border font-medium ${
                       simState.boardingStatus === status
                         ? "bg-indigo-600/20 border-indigo-500 text-indigo-300"
@@ -153,6 +178,7 @@ export default function SimControls({
                     {status === "Boarding Now" && "✈ Uçuş Binişte"}
                     {status === "Delayed" && "⚠️ Ertelendi"}
                     {status === "Cancelled" && "❌ İptal Edildi"}
+                    {status === "Closed" && "🔒 Kapalı"}
                   </button>
                 ))}
               </div>
@@ -361,6 +387,62 @@ export default function SimControls({
                         <span className="font-mono font-bold">{u.accessibilityProfile.guardianPhone || "—"}</span>
                       </div>
                     )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Step 5: KVKK Security and Access Audit Logs */}
+        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm uppercase tracking-wider">
+              <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0" />
+              <span>KVKK Erişim & Audit Günlüğü</span>
+            </div>
+            <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-bold px-2 py-0.5 rounded-full border border-indigo-500/30 font-mono">
+              Yasal İzler
+            </span>
+          </div>
+
+          <p className="text-[11px] text-slate-400 leading-normal">
+            Kişisel verilere ve rıza işlem geçmişlerine erişen her aktörün, uygulanan eylemin ve otomatik imha süreçlerinin zaman damgalı bağımsız, silinemez kaydı.
+          </p>
+
+          {auditLogs.length === 0 ? (
+            <div className="text-center py-4 border border-dashed border-slate-800 rounded-lg text-xs text-slate-500 font-mono">
+              Henüz bir erişim veya işlem gerçekleştirilmedi.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1 scrollbar-thin font-mono text-[9.5px]">
+              {auditLogs.map((log) => {
+                let actionColor = "text-indigo-400 bg-indigo-950/40 border border-indigo-900/50";
+                if (log.action === "HEALTH_DATA_CONSENT" || log.action === "HEALTH_DATA_READ") {
+                  actionColor = "text-rose-400 bg-rose-950/40 border border-rose-900/50";
+                } else if (log.action === "AUTO_DELETE_RETENTION") {
+                  actionColor = "text-amber-400 bg-amber-955/40 border border-amber-900/50";
+                } else if (log.action === "PROFILE_CREATE") {
+                  actionColor = "text-emerald-400 bg-emerald-955/40 border border-emerald-900/50";
+                }
+
+                const displayTime = log.timestamp 
+                  ? new Date(log.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) 
+                  : "—";
+
+                return (
+                  <div key={log.id} className="p-2 border border-slate-850 bg-slate-900 rounded-md space-y-1">
+                    <div className="flex justify-between items-center text-[8.5px]">
+                      <span className="text-slate-500 font-semibold">[{displayTime}]</span>
+                      <span className="text-slate-300 font-extrabold">{log.actor}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`text-[8px] font-bold px-1 rounded ${actionColor}`}>{log.action}</span>
+                      <span className="text-slate-500 text-[8.5px] truncate max-w-[120px]" title={log.targetUser}>({log.targetUser})</span>
+                    </div>
+                    <div className="text-slate-300 leading-normal text-[9px]">
+                      {log.details}
+                    </div>
                   </div>
                 );
               })}

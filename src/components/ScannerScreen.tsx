@@ -4,7 +4,8 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Camera, RefreshCw, X, ShieldAlert, CheckCircle2, AlertCircle } from "lucide-react";
+import { Camera, RefreshCw, X, ShieldAlert, CheckCircle2, AlertCircle, Smartphone } from "lucide-react";
+import { Camera as CapCamera, CameraResultType, CameraSource } from "@capacitor/camera";
 
 interface ScannerProps {
   onScanComplete: (rawText: string) => void;
@@ -17,8 +18,15 @@ export default function ScannerScreen({ onScanComplete, onClose }: ScannerProps)
   const [cameraState, setCameraState] = useState<"loading" | "active" | "denied" | "unsupported">("loading");
   const [torch, setTorch] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
+  const [isCapacitor, setIsCapacitor] = useState(false);
 
   useEffect(() => {
+    // Detect if we are actively running inside a native Capacitor wrapper (iOS/Android)
+    const cap = (window as any).Capacitor;
+    if (cap && typeof cap.getPlatform === "function" && cap.getPlatform() !== "web") {
+      setIsCapacitor(true);
+    }
+
     let active = true;
 
     async function setupCamera() {
@@ -37,7 +45,7 @@ export default function ScannerScreen({ onScanComplete, onClose }: ScannerProps)
           setCameraState("active");
         }
       } catch (err) {
-        console.warn("Camera could not be initiated:", err);
+        console.warn("Camera could not be initiated via standard web APIs:", err);
         if (active) {
           setCameraState("denied");
         }
@@ -76,6 +84,25 @@ export default function ScannerScreen({ onScanComplete, onClose }: ScannerProps)
       onScanComplete("M1YILMAZ/SELIM E ABC1234 ISTLHRTK 1903 120Y012A0001 147");
     }
   }, [scanProgress, onScanComplete]);
+
+  // Handle hand-off to Capacitor Native Camera
+  const handleCapacitorCapture = async () => {
+    try {
+      const photo = await CapCamera.getPhoto({
+        quality: 90,
+        allowEditing: false,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Camera
+      });
+      
+      if (photo && photo.base64String) {
+        // Successful acquisition triggers simulated parser decode immediately
+        onScanComplete("M1YILMAZ/SELIM E ABC1234 ISTLHRTK 1903 120Y012A0001 147");
+      }
+    } catch (error) {
+      console.warn("Capacitor camera capture cancelled or failed:", error);
+    }
+  };
 
   // Handle flash/torch toggle
   const toggleTorch = () => {
@@ -182,6 +209,16 @@ export default function ScannerScreen({ onScanComplete, onClose }: ScannerProps)
             <p className="text-xs text-indigo-200">
               Biniş kartının barkodunu çerçeve içerisine yerleştirin.
             </p>
+            <div className="flex justify-center pointer-events-auto">
+              <button
+                type="button"
+                onClick={handleCapacitorCapture}
+                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 transition-all text-white font-black text-[9px] uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-lg cursor-pointer border border-indigo-400/20"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                {isCapacitor ? "Native Kamera Tarayıcısı" : "Native / PWA Kamera Çekimi"}
+              </button>
+            </div>
           </div>
         </div>
       </div>

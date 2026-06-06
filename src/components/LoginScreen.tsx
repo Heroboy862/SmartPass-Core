@@ -9,8 +9,6 @@ import {
   UserPlus, Lock, Sparkles, Heart, Activity, CheckCircle
 } from "lucide-react";
 import { AccessibilityProfile } from "../types";
-import { db } from "../firebase";
-import { doc, setDoc } from "firebase/firestore";
 
 interface LoginScreenProps {
   onLoginSuccess: (passengerName: string, accessibilityProfile?: AccessibilityProfile) => void;
@@ -32,6 +30,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [accessibilityType, setAccessibilityType] = React.useState<AccessibilityProfile["type"]>("none");
   const [customRequest, setCustomRequest] = React.useState("");
   const [privacyAgreed, setPrivacyAgreed] = React.useState(false);
+  const [healthConsentAgreed, setHealthConsentAgreed] = React.useState(false);
   const [isUnder18, setIsUnder18] = React.useState(false);
   const [guardianPhone, setGuardianPhone] = React.useState("");
   
@@ -76,6 +75,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       return;
     }
 
+    if (accessibilityType !== "none" && !healthConsentAgreed) {
+      setShowError("Seçtiğiniz özel gereksinim/engellilik durumunuzun işlenebilmesi için Sağlık Verisi Açık Rıza Onayı'nı işaretlemelisiniz.");
+      return;
+    }
+
     if (isUnder18 && !guardianPhone) {
       setShowError("Lütfen veli/aile koruma telefon numarasını belirtiniz.");
       return;
@@ -89,24 +93,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       type: accessibilityType,
       customRequest: customRequest || undefined,
       kvkkChecked: privacyAgreed,
+      healthConsentAgreed: accessibilityType !== "none" ? healthConsentAgreed : undefined,
       isUnder18: isUnder18,
       guardianPhone: isUnder18 ? guardianPhone : undefined
     };
 
     try {
-      // Save data directly in Firestore database for persistent storage
-      try {
-        await setDoc(doc(db, "users", regEmail), {
-          name: regName,
-          email: regEmail,
-          accessibilityProfile: profile,
-          createdAt: new Date().toISOString()
-        });
-        console.log("Registration successfully saved in Firestore.");
-      } catch (fsError: any) {
-        console.warn("Firestore collection persistent write omitted or delayed:", fsError);
-      }
-
       const response = await fetch("/api/email/send-welcome", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -430,9 +422,24 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     className="mt-0.5 w-4 h-4 accent-emerald-600 rounded border-slate-350 cursor-pointer shrink-0"
                   />
                   <label htmlFor="privacyAgreed" className="text-[10px] text-slate-600 leading-snug cursor-pointer select-none">
-                    Özel gereksinim verilerimin tamamen gizli kalması koşuluyla, engelsiz seyahat yönlendirmesi için işlenmesini onaylıyorum.
+                    Uygulamanın genel KVKK Aydınlatma Metni'ni okudum ve genel seyahat profil verilerimin bu doğrultuda işlenmesini onaylıyorum.
                   </label>
                 </div>
+
+                {accessibilityType !== "none" && (
+                  <div className="flex gap-2.5 items-start mt-2.5 pt-2 border-t border-dashed border-emerald-500/30 bg-emerald-505/5 p-2 rounded-lg animate-fade-in">
+                    <input
+                      type="checkbox"
+                      id="healthConsentAgreed"
+                      checked={healthConsentAgreed}
+                      onChange={(e) => setHealthConsentAgreed(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 accent-emerald-600 rounded border-slate-350 cursor-pointer shrink-0"
+                    />
+                    <label htmlFor="healthConsentAgreed" className="text-[10px] text-emerald-950 font-semibold leading-snug cursor-pointer select-none">
+                      ⚠️ <strong>ÖZEL NİTELİKLİ SAĞLIK VERİSİ AÇIK RIZASI:</strong> Yukarıda belirttiğim ortopedik destek, medikal durum veya diğer engellilik/sağlık verilerimin, havalimanı engelsiz asistanlığı koordinasyonu amacıyla işlenmesine 6698 sayılı KVKK kapsamında <strong>açık rıza veriyorum</strong>.
+                    </label>
+                  </div>
+                )}
               </div>
 
               <button

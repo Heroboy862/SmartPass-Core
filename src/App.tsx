@@ -3,350 +3,122 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { 
   Wifi, Battery, ShieldAlert, Cpu, Sparkles, AlertTriangle, Play, HelpCircle, 
-  Terminal, Globe, BookOpen, Layers
+  Terminal, Globe, BookOpen, Layers, ShieldCheck
 } from "lucide-react";
-import SimControls from "./components/SimControls";
 import LoginScreen from "./components/LoginScreen";
 import ScannerScreen from "./components/ScannerScreen";
-import DashboardScreen from "./components/DashboardScreen";
 import AssistantChat from "./components/AssistantChat";
-import { FlightInfo, ChatMessage, AccessibilityProfile } from "./types";
-import { db } from "./firebase";
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { useFlightStore } from "./store/useFlightStore";
+import { PushNotifications } from "@capacitor/push-notifications";
+
+const SimControls = lazy(() => import("./components/SimControls"));
+const DashboardScreen = lazy(() => import("./components/DashboardScreen"));
 
 export default function App() {
-  // Shared passenger / layout flow states with secure sessionStorage fallback for session protection
-  const [passengerName, setPassengerName] = useState<string | null>(() => {
-    return sessionStorage.getItem("secure_passengerName");
-  });
-  const [activeScreen, setActiveScreen] = useState<"login" | "dashboard" | "scanner" | "chat">(() => {
-    return (sessionStorage.getItem("secure_activeScreen") as any) || "login";
-  });
-  const [accessibilityProfile, setAccessibilityProfile] = useState<AccessibilityProfile | null>(() => {
-    const saved = sessionStorage.getItem("secure_accessibilityProfile");
-    return saved ? JSON.parse(saved) : null;
-  });
-  
-  // Real-time Flight Ticket State loaded upon scanning
-  const [flightData, setFlightData] = useState<FlightInfo>(() => {
-    const saved = sessionStorage.getItem("secure_flightData");
-    if (saved) return JSON.parse(saved);
-    return {
-      passengerName: "Selim Yılmaz",
-      flightNumber: "TK-1903",
-      from: "IST",
-      fromCity: "İstanbul",
-      to: "LHR",
-      toCity: "Londra",
-      gate: "G-12",
-      seat: "12A",
-      group: "A",
-      biometricVerified: true,
-      boardingStatus: "Boarding Now",
-      boardingProgress: 65,
-      estimatedWalkTime: "6 dk",
-      airline: "Turkish Airlines",
-      airportOperator: "İGA",
-      departureTime: "22:15",
-      securityQueueTime: 12
-    };
-  });
+  const {
+    passengerName,
+    activeScreen,
+    accessibilityProfile,
+    flightData,
+    showKvkkWipeModal,
+    simState,
+    apiLogs,
+    messages,
+    isChatLoading,
+    initStore,
+    setPassengerName,
+    setActiveScreen,
+    setAccessibilityProfile,
+    setFlightData,
+    setShowKvkkWipeModal,
+    setMessages,
+    updateSimState,
+    scanBoardingPass,
+    sendMessage,
+    logout,
+    logActivity,
+    logAuditTrail
+  } = useFlightStore();
 
-  // Persist session variables securely within sessionStorage to protect against persistent client-side data leaks (KVKK compliance)
+  // Initialization: fetch server simulation state and start listener if needed
   useEffect(() => {
-    if (passengerName) {
-      sessionStorage.setItem("secure_passengerName", passengerName);
-    } else {
-      sessionStorage.removeItem("secure_passengerName");
-    }
-  }, [passengerName]);
+    initStore();
+  }, [initStore]);
 
+  // Synchronized Capacitor native push notification registration when deployed as a native app wrap
   useEffect(() => {
-    sessionStorage.setItem("secure_activeScreen", activeScreen);
-  }, [activeScreen]);
-
-  useEffect(() => {
-    if (accessibilityProfile) {
-      sessionStorage.setItem("secure_accessibilityProfile", JSON.stringify(accessibilityProfile));
-    } else {
-      sessionStorage.removeItem("secure_accessibilityProfile");
-    }
-  }, [accessibilityProfile]);
-
-  useEffect(() => {
-    sessionStorage.setItem("secure_flightData", JSON.stringify(flightData));
-  }, [flightData]);
-
-  // Simulator Variable States
-  const [simState, setSimState] = useState({
-    flightNumber: "TK-1903",
-    boardingStatus: "Boarding Now",
-    securityQueueTime: 12,
-    gate: "G-12",
-    delayReason: "Londra semalarındaki yoğunluk ve fırtına nedeniyle biniş ertelenmiştir."
-  });
-
-  // AI Chat message states
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      sender: "assistant",
-      text: "Merhaba! Ben akıllı seyahat asistanınız AeroAI. ✈️\n\nDHMİ, İGA, TAV ve HEAŞ veri sistemlerine canlı olarak bağlıyım. Yolculuğunuzun zaman planlamasını kolaylaştırmak, rötarlar/iptaller gibi kriz durumlarında haklarınızı korumak ve kapı yolunuzu bulmak için yanınızdayım.\n\nNasıl yardımcı olabilirim?",
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    }
-  ]);
-  const [isChatLoading, setIsChatLoading] = useState(false);
-
-  // System diagnostic logs
-  const [apiLogs, setApiLogs] = useState<string[]>([]);
-
-  // Push new activity message to logs
-  const logActivity = (message: string) => {
-    const time = new Date().toLocaleTimeString([], { hour12: false });
-    setApiLogs((prev) => [`[${time}] ${message}`, ...prev.slice(0, 45)]);
-  };
-
-  // Real-time Flight Tracker onSnapshot Listener
-  useEffect(() => {
-    if (!flightData || !flightData.flightNumber) return;
-
-    const flightRef = doc(db, "flights", flightData.flightNumber);
-    logActivity(`DHMİ Canlı takibi başlatıldı: flights/${flightData.flightNumber}`);
-
-    const unsubscribe = onSnapshot(flightRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        logActivity(`DHMİ/Bulut veri güncellemesi alındı: Kapı ${data.gate ?? "—"}, Durum: ${data.boardingStatus ?? "—"}`);
-        
-        // Update local active flight state with Firestore real-time values
-        setFlightData((prev) => {
-          if (prev.flightNumber !== data.flightNumber) return prev;
-          return {
-            ...prev,
-            gate: data.gate ?? prev.gate,
-            boardingStatus: data.boardingStatus ?? prev.boardingStatus,
-            securityQueueTime: data.securityQueueTime ?? prev.securityQueueTime,
-            delayReason: data.delayReason ?? prev.delayReason
-          };
-        });
-
-        // Also sync the developer panel's inputs with live Firestore updates
-        setSimState((prev) => {
-          if (prev.flightNumber !== data.flightNumber) return prev;
-          return {
-            ...prev,
-            gate: data.gate ?? prev.gate,
-            boardingStatus: data.boardingStatus ?? prev.boardingStatus,
-            securityQueueTime: data.securityQueueTime ?? prev.securityQueueTime,
-            delayReason: data.delayReason ?? prev.delayReason
-          };
-        });
-      }
-    }, (error) => {
-      console.error("Firestore flights onSnapshot error:", error);
-      logActivity(`DHMİ bağlantı pürüzü: ${error.message}`);
-    });
-
-    return () => unsubscribe();
-  }, [flightData.flightNumber]);
-
-  // Initial Load & sync simulator state
-  useEffect(() => {
-    async function fetchState() {
+    const setupCapacitorPush = async () => {
       try {
-        const res = await fetch("/api/simulation/state");
-        if (res.ok) {
-          const data = await res.json();
-          setSimState(data);
-          logActivity("Simülatör durumu sunucudan başarıyla yüklendi.");
-
-          // Sync initial state to Firestore flights database
-          try {
-            const flightRef = doc(db, "flights", data.flightNumber);
-            await setDoc(flightRef, {
-              flightNumber: data.flightNumber,
-              boardingStatus: data.boardingStatus,
-              securityQueueTime: data.securityQueueTime,
-              gate: data.gate,
-              delayReason: data.delayReason || "Normal operasyonel akış sağlandı.",
-              updatedAt: new Date().toISOString()
-            }, { merge: true });
-            logActivity(`DHMİ Canlı Veri Tabanı (flights/${data.flightNumber}) başlatıldı.`);
-          } catch (dbErr: any) {
-            console.error("Failed to sync initial flight state:", dbErr);
+        const cap = (window as any).Capacitor;
+        // Only run native-only Push registration if running inside actual iOS/Android wrapper, not Web
+        const isNativePlatform = cap && typeof cap.getPlatform === "function" && cap.getPlatform() !== "web";
+        
+        if (isNativePlatform) {
+          let perm = await PushNotifications.checkPermissions();
+          if (perm.receive === "prompt") {
+            perm = await PushNotifications.requestPermissions();
           }
+          if (perm.receive === "granted") {
+            await PushNotifications.register();
+            
+            PushNotifications.addListener("registration", (token) => {
+              logActivity("Native Push anlık bildirim cihaz kaydı başarılı.");
+              console.log("Capacitor Push Registration Token: ", token.value);
+            });
+
+            PushNotifications.addListener("pushNotificationReceived", (notification) => {
+              logActivity(`Yeni uçuş gelişme anlık bildirimi: ${notification.title}`);
+              console.log("Push Received: ", notification);
+            });
+          }
+        } else {
+          // Silently pass without triggering native UI warnings
+          console.log("AeroAI Running in Web/Desktop browser view. Native plugins are disabled.");
         }
       } catch (err) {
-        logActivity("Simülatör durumu çevrimdışı önbellekten yüklendi.");
+        console.warn("Capacitor Push registration ignored:", err);
       }
-    }
-    fetchState();
-  }, []);
-
-  // Update simulator state and sync to Express API & Firestore
-  const handleUpdateSim = async (newState: Partial<typeof simState>) => {
-    const updated = { ...simState, ...newState };
-    setSimState(updated);
-    
-    // Auto-update flight details if matches current active ticket
-    if (flightData && flightData.flightNumber === updated.flightNumber) {
-      setFlightData((prev) => ({
-        ...prev,
-        ...newState
-      }));
-    }
-
-    logActivity(`Simülasyon Güncellendi: ${Object.keys(newState).join(", ")}`);
-
-    // Sync variables with Cloud Firestore in real-time
-    try {
-      const flightRef = doc(db, "flights", updated.flightNumber);
-      await setDoc(flightRef, {
-        flightNumber: updated.flightNumber,
-        boardingStatus: updated.boardingStatus,
-        securityQueueTime: updated.securityQueueTime,
-        gate: updated.gate,
-        delayReason: updated.delayReason,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-      logActivity(`Bulut Veri Tabanı (flights/${updated.flightNumber}) güncellendi.`);
-    } catch (dbErr: any) {
-      logActivity(`Firestore güncelleme hatası: ${dbErr.message}`);
-    }
-    
-    try {
-      await fetch("/api/simulation/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated)
-      });
-      logActivity("Canlı sunucu simülasyon odaları senkronize edildi.");
-    } catch (err) {
-      logActivity("Veri tabanı senkronizasyon rötarı.");
-    }
-  };
-
-  // Triggered when a physical QR is parsed or demo ticket is clicked
-  const handleScanBoardingPass = async (rawText: string) => {
-    logActivity(`Biniş Kartı Okundu: ${rawText.substring(0, 25)}...`);
-    
-    try {
-      const res = await fetch("/api/parse-boarding-pass", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawText })
-      });
-      
-      if (res.ok) {
-        const parsed: FlightInfo = await res.json();
-        setFlightData(parsed);
-        setPassengerName(parsed.passengerName);
-        setActiveScreen("dashboard");
-        logActivity(`${parsed.airportOperator} API'sinden güncel veri başarıyla çekildi. Yolcu: ${parsed.passengerName}`);
-        
-        // Seed parsed flight to Firestore flights collection to guarantee document existence for snapshot listening
-        try {
-          const flightRef = doc(db, "flights", parsed.flightNumber);
-          await setDoc(flightRef, {
-            flightNumber: parsed.flightNumber,
-            boardingStatus: parsed.boardingStatus,
-            securityQueueTime: parsed.securityQueueTime,
-            gate: parsed.gate,
-            delayReason: "Uçuş kartı taramasıyla canlı sistemlere bağlandı.",
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-          logActivity(`Bulut Veri Tabanı (flights/${parsed.flightNumber}) canlandırıldı.`);
-        } catch (dbErr: any) {
-          console.error("Failed to seed flight state on scan:", dbErr);
-        }
-
-        // Push initial localized assistant greet
-        setMessages([
-          {
-            id: `scan-greet-${Date.now()}`,
-            sender: "assistant",
-            text: `Sayın ${parsed.passengerName}, biniş kartınız başarıyla doğrulandı!\n\n${parsed.fromCity} (${parsed.from}) havalimanındasınız. Canlı veri sağlayıcımız olan **${parsed.airportOperator}** sistemlerine göre kapınız **${parsed.gate}** olarak güncellenmiştir. Güvenlik hattı bekleme süresi ortalama **${parsed.securityQueueTime}** dakikadır.\n\nSeyahat rotanız veya size özel atanmış mağaza indirimleri için dilediğinizi sorabilirsiniz.`,
-            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-          }
-        ]);
-      } else {
-        logActivity("Hata: Biniş kartı IATA standartlarına uymuyor.");
-      }
-    } catch (err) {
-      logActivity("Bağlantı kesildi. Yerel doğrulama yapılıyor.");
-    }
-  };
-
-  // Submit messages via client-side proxy to server-side Gemini 3.5-Flash
-  const handleSendMessage = async (text: string) => {
-    const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
-      sender: "user",
-      text,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     };
-    
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
-    setIsChatLoading(true);
-    logActivity("Kullanıcı sorgusu Gemini asistanına iletildi.");
+    setupCapacitorPush();
+  }, [logActivity]);
 
-    try {
-      const res = await fetch("/api/assistant/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: updatedMessages,
-          flightData: flightData,
-          accessibilityProfile: accessibilityProfile
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const assistantMsg: ChatMessage = {
-          id: `ai-${Date.now()}`,
-          sender: "assistant",
-          text: data.text,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-        logActivity("Gemini yanıtı işlendi ve yolcuya iletildi.");
-      } else {
-        throw new Error("Gemini response is not OK");
-      }
-    } catch (err: any) {
-      logActivity("Hata: Gemini asistanı çağrısı başarısız oldu.");
-      const errorMsg: ChatMessage = {
-        id: `ai-err-${Date.now()}`,
-        sender: "assistant",
-        text: "Kusura bakmayın, şu anda bağlantı yoğunluğu sebebiyle isteğinizi yanıtlayamadım. Lütfen tekrar deneyiniz.",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      };
-      setMessages((prev) => [...prev, errorMsg]);
-    } finally {
-      setIsChatLoading(false);
+  // Record audit log when assistant accesses the passenger profile and health needs
+  useEffect(() => {
+    if (activeScreen === "chat" && passengerName) {
+      logAuditTrail(
+        "AEROAI_ASSISTANT",
+        passengerName,
+        "HEALTH_DATA_READ",
+        "AeroAI Kriz Asistanı yerel yönlendirme hesaplamak için yolcunun özel nitelikli tıbbi yardım biletini sorguladı."
+      );
     }
-  };
+  }, [activeScreen, passengerName, logAuditTrail]);
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col lg:flex-row text-slate-100 font-sans">
       
       {/* LEFT: Simulation and Operator Management Panel */}
       <div className="lg:w-[40%] xl:w-[35%] w-full flex flex-col border-t lg:border-t-0 order-2 lg:order-1 border-slate-800">
-        <SimControls 
-          simState={simState}
-          onUpdateSim={handleUpdateSim}
-          onScanPredefined={handleScanBoardingPass}
-          apiLogs={apiLogs}
-        />
+        <Suspense fallback={
+          <div className="flex-1 flex flex-col items-center justify-center p-6 text-slate-400">
+            <div className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin mb-2" />
+            <p className="text-xs font-semibold">Simülatör Kontrolleri Yükleniyor...</p>
+          </div>
+        }>
+          <SimControls 
+            simState={simState}
+            onUpdateSim={updateSimState}
+            onScanPredefined={scanBoardingPass}
+            apiLogs={apiLogs}
+          />
+        </Suspense>
       </div>
 
       {/* RIGHT: High-Fidelity Hand-crafted Smartphone Simulator Frame representing Flutter app */}
-      <div className="flex-1 flex flex-col items-center justify-center p-4 lg:p-8 bg-gradient-to-br from-slate-950 to-indigo-950/20 order-1 lg:order-2 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-850">
+      <div className="flex-1 flex flex-col items-center justify-center p-4 lg:p-8 bg-gradient-to-br from-slate-950 to-indigo-950/20 order-1 lg:order-2 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-800">
         
         {/* Concept Introduction Badge */}
         <div className="mb-6 text-center max-w-sm hidden lg:block">
@@ -388,10 +160,23 @@ export default function App() {
               <LoginScreen 
                 onLoginSuccess={(name, accessibility) => {
                   setPassengerName(name);
-                  setFlightData((prev) => ({
-                    ...prev,
-                    passengerName: name
-                  }));
+                  if (flightData) {
+                    setFlightData({
+                      ...flightData,
+                      passengerName: name
+                    });
+                  }
+
+                  // Record login and profile load audit logs (KVKK audit compliance)
+                  logAuditTrail(
+                    "USER_PORTAL",
+                    name,
+                    accessibility && accessibility.enabled ? "HEALTH_DATA_READ" : "PROFILE_ACCESS",
+                    accessibility && accessibility.enabled
+                      ? `Kullanıcı sisteme giriş yaptı (${accessibility.type} sağlık destek profili başarıyla yüklendi).`
+                      : "Kullanıcı sisteme giriş yaptı (Standart seyahat profili yüklendi)."
+                  );
+
                   if (accessibility) {
                     setAccessibilityProfile(accessibility);
                     logActivity(`Kullanıcı Girişi/Kayıt: ${name} (Fiziki/Sağlık Desteği: ${accessibility.type})`);
@@ -399,7 +184,7 @@ export default function App() {
                     // Welcome greeting optimized for accessibility
                     let greetSuffix = "";
                     if (accessibility.type === "wheelchair") greetSuffix = "\n\n♿ Ortopedik refakat profiliniz aktiftir. Havalimanına ayak bastığınızda IGA/TAV engelsiz asistan ekibi sizi karşılayacak. Rotalarınız otomatik olarak basamaksız, asansörlü ve rampalı olarak işaretlenmiştir.";
-                    if (accessibility.type === "vision") greetSuffix = "\n\n👁️ Görme hassasiyeti ve sesli asistan profiliniz aktiftir. Akıllı baston ve sesli rehber hizmeti devrededir. Ekran okuyucu uyumlu arayüzümüzle her an size rehberlik etmek için buradayım.";
+                    if (accessibility.type === "vision") greetSuffix = "\n\n👁️ Görme hassasiyeti ve sesli asistan profiliniz aktiftir. Akıllı baston ve sesli rehber hizmeti devrededir. Ekran okuyucu uyumlu arayüzümüzle her an size rehberlik etmek için burayanız.";
                     if (accessibility.type === "hearing") greetSuffix = "\n\n👂 İşitme engeli profiliniz aktiftir. Havalimanındaki tüm kapı ve rötar anonsları mobil bento kartlarımızda görsel flaşör olarak gösterilecektir.";
                     if (accessibility.type === "elderly") greetSuffix = "\n\n👴 Yaşlı/Refakat desteği profiliniz aktiftir. Buggy elektrikli transfer aracı kalkış kapınıza kolay ulaşabilmeniz için terminal dairesinde talep edilmiştir.";
                     if (accessibility.type === "other") greetSuffix = "\n\n🩺 Tıbbi ve diğer özel ihtiyaç profiliniz aktiftir. Medikal durum asistanlığı devrede; her türlü ilaç, solunum cihazı taşıma haklarınızı asistanımız üzerinden sorgulayabilirsiniz.";
@@ -422,38 +207,68 @@ export default function App() {
             )}
 
             {activeScreen === "dashboard" && (
-              <DashboardScreen 
-                flightData={flightData}
-                accessibilityProfile={accessibilityProfile}
-                onOpenScanner={() => setActiveScreen("scanner")}
-                onOpenChat={() => setActiveScreen("chat")}
-                onLogout={() => {
-                  sessionStorage.clear(); // Clear all transient passenger tokens on logout securely
-                  setPassengerName(null);
-                  setAccessibilityProfile(null);
-                  setActiveScreen("login");
-                  logActivity("Giriş oturumu sıfırlandı.");
-                }}
-              />
+              <Suspense fallback={
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-slate-600 bg-white">
+                  <div className="w-8 h-8 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin mb-4" />
+                  <p className="text-xs font-bold">Dashboard Verileri Yükleniyor...</p>
+                </div>
+              }>
+                <DashboardScreen 
+                  flightData={flightData}
+                  accessibilityProfile={accessibilityProfile}
+                  onOpenScanner={() => setActiveScreen("scanner")}
+                  onOpenChat={() => setActiveScreen("chat")}
+                  onLogout={logout}
+                />
+              </Suspense>
             )}
 
             {activeScreen === "scanner" && (
               <ScannerScreen 
-                onScanComplete={(raw) => {
-                  handleScanBoardingPass(raw);
-                }}
+                onScanComplete={scanBoardingPass}
                 onClose={() => setActiveScreen("dashboard")}
               />
             )}
 
-            {activeScreen === "chat" && (
+             {activeScreen === "chat" && (
               <AssistantChat 
                 messages={messages}
-                onSendMessage={handleSendMessage}
+                onSendMessage={sendMessage}
                 isLoading={isChatLoading}
                 onClose={() => setActiveScreen("dashboard")}
                 flightData={flightData}
               />
+            )}
+
+            {/* Elegant full-screen KVKK Auto-Retention Wipe modal overlay */}
+            {showKvkkWipeModal && (
+              <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6 text-center select-none animate-fade-in">
+                <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mb-5 animate-pulse">
+                  <ShieldCheck className="w-8 h-8 text-rose-500" />
+                </div>
+                
+                <h3 className="text-sm font-black text-rose-400 uppercase tracking-widest mb-2 font-display">
+                  🔒 KVKK VERİ İMHASI BİLDİRİMİ
+                </h3>
+                
+                <div className="space-y-3 max-w-xs text-[11px] text-slate-300 font-sans leading-relaxed">
+                  <p className="font-extrabold text-white text-xs">
+                    Uçuşunuz tamamlanmış ve uçağınız kalkış kapısından ayrılmıştır.
+                  </p>
+                  <p className="text-slate-400">
+                    6698 sayılı KVKK <strong>Veri Saklama Sınırı ve Azaltımı Taahhüdümüz</strong> uyarınca, seyahat asistanlığı için kullandığınız tüm kişisel, biyometrik, özel nitelikli tıbbi ve sağlık yardım rızası verileriniz yerel tarayıcınızdan ve canlı bulut sunucularımızdan <strong>kalıcı olarak geri döndürülemez surette imha edilmiştir.</strong>
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setShowKvkkWipeModal(false);
+                  }}
+                  className="mt-6 bg-slate-800 hover:bg-slate-700 text-white py-2 px-5 rounded-xl text-[10px] font-bold tracking-wider uppercase transition-all shadow-md cursor-pointer border border-slate-750"
+                >
+                  Anladım, Kapat
+                </button>
+              </div>
             )}
           </div>
 

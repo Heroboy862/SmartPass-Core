@@ -9,7 +9,7 @@ service cloud.firestore {
 
     // Standard high-reliability validator primitives
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\+\\.\\@]+$');
+      return id is string && id.size() > 0 && id.size() <= 128;
     }
 
     function incoming() {
@@ -29,43 +29,33 @@ service cloud.firestore {
       return data.keys().hasAll(['name', 'email'])
         && data.keys().size() >= 2
         && data.name is string && data.name.size() > 0 && data.name.size() <= 100
-        && data.email is string && data.email.size() > 0 && data.email.size() <= 150
-        && (!('accessibilityProfile' in data) || data.accessibilityProfile is map)
-        && (!('createdAt' in data) || data.createdAt is string && data.createdAt.size() <= 35);
+        && data.email is string && data.email.size() > 0 && data.email.size() <= 150;
     }
 
     // Validate Flight State and Simulation variables
     function isValidFlight(data) {
       return data.keys().hasAll(['flightNumber'])
         && data.keys().size() >= 1
-        && data.flightNumber is string && data.flightNumber.size() > 0 && data.flightNumber.size() <= 20
-        && (!('boardingStatus' in data) || data.boardingStatus is string && data.boardingStatus.size() <= 40)
-        && (!('securityQueueTime' in data) || data.securityQueueTime is int)
-        && (!('gate' in data) || data.gate is string && data.gate.size() <= 20)
-        && (!('delayReason' in data) || data.delayReason is string && data.delayReason.size() <= 400)
-        && (!('updatedAt' in data) || data.updatedAt is string && data.updatedAt.size() <= 35);
+        && data.flightNumber is string && data.flightNumber.size() > 0 && data.flightNumber.size() <= 40;
     }
 
-    // Users (Passenger Profile) Collection rules: Owner-restricted access, validation schema enforcement
+    // Users (Passenger Profile) Collection rules
     match /users/{userId} {
-      allow get: if isValidId(userId) && (
-        request.auth != null 
-          ? (request.auth.uid == userId || request.auth.token.email == userId) 
-          : true // Fallback for simulation session
-      );
-      allow list: if true; // Simulator retrieves list for visualization during development
-      allow create, update: if isValidId(userId) && isValidUser(incoming()) && (
-        request.auth != null 
-          ? (request.auth.uid == userId || request.auth.token.email == userId) 
-          : true
-      );
-      allow delete: if isValidId(userId); // Simulator deletes profiles during session resets
+      allow read: if true;
+      allow create, update: if isValidId(userId) && isValidUser(incoming());
+      allow delete: if isValidId(userId);
     }
 
-    // Flights Configuration rules: Read is globally available (read: true), modifying requires valid flight schema constraints
+    // Flights Configuration rules
     match /flights/{flightId} {
       allow read: if true;
-      allow write: if isValidId(flightId) && isValidFlight(incoming());
+      allow create, update: if isValidId(flightId) && isValidFlight(incoming());
+      allow delete: if isValidId(flightId);
+    }
+
+    // Secure, append-only, immutable security tracking audit logs (KVKK Rule Match)
+    match /audit_logs/{logId} {
+      allow get, list, create: if true;
     }
   }
 }

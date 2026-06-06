@@ -199,7 +199,7 @@ test("Plan B - Rule-based fallback response engine - Gate distance / walk calcul
     from: "SAW",
     to: "ADB",
     toCity: "İzmir",
-    boardingStatus: "On-Time",
+    boardingStatus: "Waiting",
     estimatedWalkTime: "12 dk",
     gate: "B-03",
     biometricVerified: true,

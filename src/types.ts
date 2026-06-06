@@ -3,6 +3,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export type BoardingStatus = "Waiting" | "Boarding Now" | "Delayed" | "Cancelled" | "Closed";
+
+export interface FlightSource {
+  provider: "SIMULATION" | "AMADEUS" | "IGA";
+  updatedAt: string;
+  confidence: number;
+}
+
+export interface FlightSchedule {
+  std: string;
+  etd: string;
+  atd: string | null;
+}
+
+export interface FlightDisruption {
+  type: string;
+  reason: string;
+}
+
 export interface FlightInfo {
   passengerName: string;
   flightNumber: string;
@@ -11,7 +30,7 @@ export interface FlightInfo {
   to: string;
   toCity: string;
   gate: string;
-  boardingStatus: string; // "Waiting" | "Boarding" | "Closed" | "Delayed" | "Cancelled"
+  boardingStatus: BoardingStatus;
   seat: string;
   group: string;
   biometricVerified: boolean;
@@ -21,6 +40,10 @@ export interface FlightInfo {
   airportOperator: "İGA" | "TAV" | "HEAŞ" | "DHMİ"; // Operators
   departureTime: string;
   securityQueueTime: number; // minutes
+  delayReason?: string;
+  source?: FlightSource;
+  schedule?: FlightSchedule;
+  disruption?: FlightDisruption | null;
 }
 
 export interface AutomationResponse {
@@ -56,6 +79,7 @@ export interface AccessibilityProfile {
   type: "wheelchair" | "vision" | "hearing" | "elderly" | "other" | "none";
   customRequest?: string;
   kvkkChecked: boolean;
+  healthConsentAgreed?: boolean;
   isUnder18?: boolean;
   guardianPhone?: string;
 }

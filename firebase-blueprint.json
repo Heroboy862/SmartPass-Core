@@ -13,6 +13,10 @@
           "type": "string",
           "description": "Primary email of passenger"
         },
+        "flightNumber": {
+          "type": "string",
+          "description": "Active flight number assigned to the passenger"
+        },
         "accessibilityProfile": {
           "type": "object",
           "description": "User specific accessibility configuration profile"
