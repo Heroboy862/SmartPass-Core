@@ -172,7 +172,7 @@ router.post("/update", async (req: Request, res: Response) => {
       await autoCleanClosedFlightUsers(updated.flightNumber);
     }
   }
-  res.json({ success: true, state: updated });
+  res.json({ success: true, state: updated, variables: updated });
 });
 
 export default router;

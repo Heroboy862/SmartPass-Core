@@ -17,7 +17,11 @@ router.get("/info", (req: Request, res: Response) => {
 
   try {
     const weatherData = getWeatherForAirports(from, fromCity, to, toCity);
-    res.json(weatherData);
+    res.json({
+      ...weatherData,
+      departure: weatherData.from,
+      arrival: weatherData.to
+    });
   } catch (error: any) {
     console.error("Error in weather route:", error);
     res.status(500).json({ error: "Havalimanı hava durumu bilgisi hesaplanamadı." });

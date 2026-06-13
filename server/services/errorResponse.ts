@@ -34,6 +34,9 @@ export function sendError(
   const requestId = customRequestId || `req-${crypto.randomBytes(8).toString("hex")}`;
   
   return res.status(statusCode).json({
+    success: false,
+    code: code.toUpperCase(),
+    message,
     error: {
       code: code.toUpperCase(),
       message,

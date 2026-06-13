@@ -11,7 +11,7 @@ export let webDb: any = null;
 
 try {
   const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(configPath)) {
+  if (fs.existsSync(configPath) && process.env.NODE_ENV !== "test") {
     const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     
     // 1. Initialize Firebase Admin SDK (Privileged Bypasses Security Rules for Backend Operations)

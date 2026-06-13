@@ -1,5 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert";
+
+// Set localized sandbox env parameters to make unit assertions 100% deterministic 
+// regardless of custom host overrides
+process.env.FALLBACK_USD = "38.85";
+process.env.FALLBACK_EUR = "42.20";
+process.env.FALLBACK_GBP = "50.45";
+process.env.FALLBACK_RUB = "0.39";
+
 import { 
   parseBoardingPassText, 
   getCurrencyInfo, 
@@ -94,7 +102,7 @@ test("Dynamic Flow & Currency (getCurrencyInfo) - Live rates calculations", () =
   // Test USD with live values inside currency mapping
   const rates = {
     USD: 0.025, // 1 / 0.025 = 40 TRY
-    EUR: 0.0222, // 1 / 0.0222 = 45 TRY
+    EUR: 0.022222, // 1 / 0.022222 = 45 TRY
     GBP: 0.0195, // 1 / 0.0195 = 51.28 TRY
     RUB: 2.5 // 1 / 2.5 = 0.4 TRY
   };

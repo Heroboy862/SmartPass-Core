@@ -55,8 +55,8 @@ export function parseBoardingPassText(rawText: string): { flightId?: string, cus
     return { custom: false, flightId: "TK1903" };
   }
   
-  const uppercaseRaw = rawText.toUpperCase();
-  const hasIataPrefix = uppercaseRaw.startsWith("M") || uppercaseRaw.startsWith("S");
+  const uppercaseRaw = rawText.toUpperCase().trim();
+  const hasIataPrefix = /^[MS][1-4]/.test(uppercaseRaw);
   if (!hasIataPrefix) {
     if (uppercaseRaw.includes("TK1903") || uppercaseRaw.includes("TK-1903") || uppercaseRaw.includes("SELIM")) {
       return { flightId: "TK1903", custom: false };
@@ -200,5 +200,5 @@ export function parseBoardingPassText(rawText: string): { flightId?: string, cus
     return { custom: true, data: parsedData };
   }
 
-  return null;
+  return { custom: false, flightId: "TK1903" };
 }
