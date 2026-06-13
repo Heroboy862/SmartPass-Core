@@ -1,5 +1,5 @@
 import { initializeApp as initializeWebApp } from "firebase/app";
-import { getFirestore as getWebFirestore, doc as webDoc, setDoc as webSetDoc } from "firebase/firestore";
+import { getFirestore as getWebFirestore, doc as webDoc, setDoc as webSetDoc, addDoc, collection } from "firebase/firestore";
 import admin from "firebase-admin";
 import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 import fs from "fs";
@@ -121,16 +121,27 @@ export async function createAuditLog(
 
   console.log(`[AUDIT] [${timestamp}] Actor: ${actor} | Action: ${action} | Target: ${targetUser} | Details: ${details}`);
 
-  try {
-    if (adminDb) {
+  // Option A (Preferred): Privileged Admin SDK
+  if (adminDb && useAdminDb) {
+    try {
       await adminDb.collection("audit_logs").add(logData);
-    } else if (webDb) {
-      // If adminDb is not authorized, write via Web SDK directly since rules permit
-      const { addDoc, collection } = require("firebase/firestore");
-      await addDoc(collection(webDb, "audit_logs"), logData);
+      console.log("[Firestore Sync] Admin audit log write successful.");
+      return;
+    } catch (adminErr: any) {
+      // Gracefully switch to Web SDK
+      useAdminDb = false;
+      console.warn("[Firestore Sync] Backend Admin audit log write failed. Falling back to Web SDK:", adminErr.message);
     }
-  } catch (err: any) {
-    console.error("[AUDIT LOG ERROR] Failed to write audit trail record:", err.message);
+  }
+
+  // Option B: Web SDK Fallback
+  if (webDb) {
+    try {
+      await addDoc(collection(webDb, "audit_logs"), logData);
+      console.log("[Firestore Sync] Web audit log write successful.");
+    } catch (webErr: any) {
+      console.error("[AUDIT LOG ERROR] Failed to write audit trail record:", webErr.message);
+    }
   }
 }
 

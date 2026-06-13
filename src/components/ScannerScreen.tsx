@@ -81,6 +81,9 @@ export default function ScannerScreen({ onScanComplete, onClose }: ScannerProps)
   // Safe separation of state computation and side effect (KVKK-compliant local parse trigger)
   useEffect(() => {
     if (scanProgress >= 100) {
+      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+        navigator.vibrate([100, 50, 100]); // Clean double-pulse vibration on success
+      }
       onScanComplete("M1YILMAZ/SELIM E ABC1234 ISTLHRTK 1903 120Y012A0001 147");
     }
   }, [scanProgress, onScanComplete]);
@@ -96,6 +99,9 @@ export default function ScannerScreen({ onScanComplete, onClose }: ScannerProps)
       });
       
       if (photo && photo.base64String) {
+        if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+          navigator.vibrate([100, 50, 100]); // Clean double-pulse vibration on mobile capture success
+        }
         // Successful acquisition triggers simulated parser decode immediately
         onScanComplete("M1YILMAZ/SELIM E ABC1234 ISTLHRTK 1903 120Y012A0001 147");
       }

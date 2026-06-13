@@ -18,6 +18,7 @@ interface FlightState {
   accessibilityProfile: AccessibilityProfile | null;
   flightData: FlightInfo | null;
   showKvkkWipeModal: boolean;
+  isOnline: boolean;
 
   // Simulator State
   simState: SimulatorState;
@@ -40,6 +41,7 @@ interface FlightState {
   setShowKvkkWipeModal: (show: boolean) => void;
   setMessages: (messages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => void;
   setIsChatLoading: (loading: boolean) => void;
+  setIsOnline: (online: boolean) => void;
 
   // Logs
   logActivity: (message: string) => void;
@@ -114,6 +116,7 @@ export const useFlightStore = create<FlightState>((set, get) => {
     accessibilityProfile: getSessionJsonItem("secure_accessibilityProfile"),
     flightData: getSessionJsonItem("secure_flightData") ? initialFlightData : null,
     showKvkkWipeModal: false,
+    isOnline: typeof window !== "undefined" ? window.navigator.onLine : true,
 
     simState: {
       flightNumber: "TK-1903",
@@ -199,6 +202,21 @@ export const useFlightStore = create<FlightState>((set, get) => {
 
     setIsChatLoading: (loading) => set({ isChatLoading: loading }),
 
+    setIsOnline: (online) => {
+      const wasOffline = !get().isOnline;
+      set({ isOnline: online });
+      if (online && wasOffline) {
+        // Automatically restart synchronization when connection is re-established
+        const currentData = get().flightData;
+        if (currentData && currentData.flightNumber) {
+          get().startFlightSync(currentData.flightNumber);
+        }
+      } else if (!online) {
+        // Stop listener when going offline
+        get().stopFlightSync();
+      }
+    },
+
     logActivity: (message) => {
       const time = new Date().toLocaleTimeString([], { hour12: false });
       set((state) => ({
@@ -272,6 +290,10 @@ export const useFlightStore = create<FlightState>((set, get) => {
         });
         if (res.ok) {
           const parsed: FlightInfo = await res.json();
+          
+          if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+            navigator.vibrate([100, 50, 100]); // Clean success double-pulse vibration
+          }
           
           get().setFlightData(parsed);
           get().setPassengerName(parsed.passengerName);
@@ -362,8 +384,13 @@ export const useFlightStore = create<FlightState>((set, get) => {
     },
 
     startFlightSync: (flightNumber) => {
-      const { stopFlightSync, addSyncLog } = get();
+      const { stopFlightSync, addSyncLog, isOnline } = get();
       stopFlightSync();
+
+      if (!isOnline) {
+        addSyncLog(`DHMİ çevrimdışı önbellek modu devrede: flights/${flightNumber}`);
+        return;
+      }
 
       const flightRef = doc(db, "flights", flightNumber);
       addSyncLog(`DHMİ Canlı takibi başlatıldı: flights/${flightNumber}`);

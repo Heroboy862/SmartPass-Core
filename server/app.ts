@@ -6,6 +6,7 @@ import boardingPassRouter from "./routes/boardingPass";
 import assistantRouter from "./routes/assistant";
 import transportRouter from "./routes/transport";
 import currencyRouter from "./routes/currency";
+import weatherRouter from "./routes/weather";
 import emailRouter from "./routes/email";
 import passengerRouter from "./routes/passenger";
 
@@ -69,6 +70,7 @@ app.use("/api/assistant", aiLimiter, assistantRouter);
 app.use("/api/transport", apiLimiter, transportRouter);
 app.use("/api/authority", apiLimiter, transportRouter); // Re-uses transport router for the nested /stream endpoint
 app.use("/api/currency", apiLimiter, currencyRouter);
+app.use("/api/weather", apiLimiter, weatherRouter);
 app.use("/api/email", apiLimiter, emailRouter);
 app.use("/api", apiLimiter, passengerRouter);
 

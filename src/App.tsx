@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, lazy, Suspense } from "react";
 import { 
-  Wifi, Battery, ShieldAlert, Cpu, Sparkles, AlertTriangle, Play, HelpCircle, 
+  Wifi, WifiOff, Battery, ShieldAlert, Cpu, Sparkles, AlertTriangle, Play, HelpCircle, 
   Terminal, Globe, BookOpen, Layers, ShieldCheck
 } from "lucide-react";
 import LoginScreen from "./components/LoginScreen";
@@ -40,8 +40,30 @@ export default function App() {
     sendMessage,
     logout,
     logActivity,
-    logAuditTrail
+    logAuditTrail,
+    isOnline,
+    setIsOnline
   } = useFlightStore();
+
+  // Listen to genuine window online/offline states
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      logActivity("Bağlantı kuruldu. Havalimanı canlı veri akışları aktif.");
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      logActivity("Bağlantı kesildi. Yerel KVKK önbelleğinde çalışılıyor.");
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [setIsOnline, logActivity]);
 
   // Initialization: fetch server simulation state and start listener if needed
   useEffect(() => {
@@ -146,16 +168,34 @@ export default function App() {
           <div className="h-6.5 bg-white text-slate-900 px-7 flex justify-between items-center text-[10px] font-semibold select-none z-35 relative shrink-0">
             <span>20:30</span>
             <div className="flex items-center gap-1">
-              <span className="font-mono text-[9px] text-slate-600 bg-slate-150 px-1 rounded font-bold mr-1">5G</span>
-              <Wifi className="w-3 h-3 text-slate-800" />
+              {!isOnline ? (
+                <span className="font-mono text-[7.5px] text-rose-600 bg-rose-50 border border-rose-100 px-1 rounded font-extrabold mr-1 animate-pulse uppercase leading-none">OFFLINE</span>
+              ) : (
+                <span className="font-mono text-[9px] text-slate-600 bg-slate-150 px-1 rounded font-bold mr-1">5G</span>
+              )}
+              {!isOnline ? (
+                <WifiOff className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
+              ) : (
+                <Wifi className="w-3 h-3 text-slate-800" />
+              )}
               <div className="flex items-center gap-0.5">
-                <Battery className="w-4 h-4 text-emerald-500 fill-emerald-500" />
+                <Battery className={isOnline ? "w-4 h-4 text-emerald-500 fill-emerald-500" : "w-4 h-4 text-amber-500 fill-amber-500"} />
               </div>
             </div>
           </div>
 
           {/* Core Mobile Application Inside Notch boundaries */}
           <div className="flex-1 bg-slate-50 overflow-hidden relative rounded-b-[38px] flex flex-col text-slate-900">
+            {!isOnline && (
+              <div id="connectivity-alert-banner" className="bg-amber-600 text-white font-extrabold uppercase py-1.5 px-4 text-[8.5px] tracking-wider flex items-center justify-center gap-2 shrink-0 select-none animate-fade-in shadow-sm border-b border-amber-500/30">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-100 shrink-0 animate-bounce" />
+                <span className="leading-tight text-center">
+                  {accessibilityProfile?.preferredLanguage === "en" 
+                    ? "Offline Mode — Viewing Offline Flight Cache" 
+                    : "Çevrimdışı Mod — Uçuş Kartı Önbellekten Gösteriliyor"}
+                </span>
+              </div>
+            )}
             {activeScreen === "login" && (
               <LoginScreen 
                 onLoginSuccess={(name, accessibility) => {
@@ -168,32 +208,64 @@ export default function App() {
                   }
 
                   // Record login and profile load audit logs (KVKK audit compliance)
+                  const isEn = accessibility?.preferredLanguage === "en";
                   logAuditTrail(
                     "USER_PORTAL",
                     name,
                     accessibility && accessibility.enabled ? "HEALTH_DATA_READ" : "PROFILE_ACCESS",
                     accessibility && accessibility.enabled
-                      ? `Kullanıcı sisteme giriş yaptı (${accessibility.type} sağlık destek profili başarıyla yüklendi).`
-                      : "Kullanıcı sisteme giriş yaptı (Standart seyahat profili yüklendi)."
+                      ? (isEn 
+                          ? `User logged in (${accessibility.type} health support profile successfully loaded).` 
+                          : `Kullanıcı sisteme giriş yaptı (${accessibility.type} sağlık destek profili başarıyla yüklendi).`)
+                      : (isEn 
+                          ? "User logged in (Standard travel profile loaded)." 
+                          : "Kullanıcı sisteme giriş yaptı (Standart seyahat profili yüklendi).")
                   );
 
                   if (accessibility) {
                     setAccessibilityProfile(accessibility);
-                    logActivity(`Kullanıcı Girişi/Kayıt: ${name} (Fiziki/Sağlık Desteği: ${accessibility.type})`);
+                    logActivity(isEn 
+                      ? `User Login/Registration: ${name} (Special Support: ${accessibility.type})` 
+                      : `Kullanıcı Girişi/Kayıt: ${name} (Fiziki/Sağlık Desteği: ${accessibility.type})`
+                    );
                     
                     // Welcome greeting optimized for accessibility
                     let greetSuffix = "";
-                    if (accessibility.type === "wheelchair") greetSuffix = "\n\n♿ Ortopedik refakat profiliniz aktiftir. Havalimanına ayak bastığınızda IGA/TAV engelsiz asistan ekibi sizi karşılayacak. Rotalarınız otomatik olarak basamaksız, asansörlü ve rampalı olarak işaretlenmiştir.";
-                    if (accessibility.type === "vision") greetSuffix = "\n\n👁️ Görme hassasiyeti ve sesli asistan profiliniz aktiftir. Akıllı baston ve sesli rehber hizmeti devrededir. Ekran okuyucu uyumlu arayüzümüzle her an size rehberlik etmek için burayanız.";
-                    if (accessibility.type === "hearing") greetSuffix = "\n\n👂 İşitme engeli profiliniz aktiftir. Havalimanındaki tüm kapı ve rötar anonsları mobil bento kartlarımızda görsel flaşör olarak gösterilecektir.";
-                    if (accessibility.type === "elderly") greetSuffix = "\n\n👴 Yaşlı/Refakat desteği profiliniz aktiftir. Buggy elektrikli transfer aracı kalkış kapınıza kolay ulaşabilmeniz için terminal dairesinde talep edilmiştir.";
-                    if (accessibility.type === "other") greetSuffix = "\n\n🩺 Tıbbi ve diğer özel ihtiyaç profiliniz aktiftir. Medikal durum asistanlığı devrede; her türlü ilaç, solunum cihazı taşıma haklarınızı asistanımız üzerinden sorgulayabilirsiniz.";
+                    if (accessibility.type === "wheelchair") {
+                      greetSuffix = isEn 
+                        ? "\n\n♿ Your orthopedic assistance profile is active. When you arrive at the airport, the IGA/TAV special assistance team will welcome you. Your routes have been automatically configured to prioritize ramps and elevators."
+                        : "\n\n♿ Ortopedik refakat profiliniz aktiftir. Havalimanına ayak bastığınızda IGA/TAV engelsiz asistan ekibi sizi karşılayacak. Rotalarınız otomatik olarak basamaksız, asansörlü ve rampalı olarak işaretlenmiştir.";
+                    }
+                    if (accessibility.type === "vision") {
+                      greetSuffix = isEn
+                        ? "\n\n👁️ Your vision support and voice guidance profile is active. Smart cane and audio assistance systems are enabled. We are here to guide you with our screen reader-compatible interface at any time."
+                        : "\n\n👁️ Görme hassasiyeti ve sesli asistan profiliniz aktiftir. Akıllı baston ve sesli rehber hizmeti devrededir. Ekran okuyucu uyumlu arayüzümüzle her an size rehberlik etmek için burayanız.";
+                    }
+                    if (accessibility.type === "hearing") {
+                      greetSuffix = isEn
+                        ? "\n\n👂 Your hearing assistance profile is active. All terminal, gate, or delay announcements will be provided directly via visual flash alerts and real-time dashboard notifications."
+                        : "\n\n👂 İşitme engeli profiliniz aktiftir. Havalimanındaki tüm kapı ve rötar anonsları mobil bento kartlarımızda görsel flaşör olarak gösterilecektir.";
+                    }
+                    if (accessibility.type === "elderly") {
+                      greetSuffix = isEn
+                        ? "\n\n👴 Your elderly/companion support profile is active. An electric buggy shuttle service has been requested to easily transfer you to your departure gate."
+                        : "\n\n👴 Yaşlı/Refakat desteği profiliniz aktiftir. Buggy elektrikli transfer aracı kalkış kapınıza kolay ulaşabilmeniz için terminal dairesinde talep edilmiştir.";
+                    }
+                    if (accessibility.type === "other") {
+                      greetSuffix = isEn
+                        ? "\n\n🩺 Your medical or special needs profile is active. Medical assistance is enabled; you can query oxygen devices, medications, or flight guidelines with our assistant."
+                        : "\n\n🩺 Tıbbi ve diğer özel ihtiyaç profiliniz aktiftir. Medikal durum asistanlığı devrede; her türlü ilaç, solunum cihazı taşıma haklarınızı asistanımız üzerinden sorgulayabilirsiniz.";
+                    }
+
+                    const welcomeText = isEn
+                      ? `Hello Mr./Ms. ${name}, welcome! Your registration is complete and your details are highly secured.${greetSuffix}\n\nHow can I help you today?`
+                      : `Merhaba Sayın ${name}, kaydınız başarıyla tamamlandı. Verilerinizin gizliliği kapsamlı olarak güvence altındadır.${greetSuffix}\n\nNasıl yardımcı olabilirim?`;
 
                     setMessages([
                       {
                         id: `welcome-acc-${Date.now()}`,
                         sender: "assistant",
-                        text: `Merhaba Sayın ${name}, kaydınız başarıyla tamamlandı. Verilerinizin gizliliği kapsamlı olarak güvence altındadır.${greetSuffix}\n\nNasıl yardımcı olabilirim?`,
+                        text: welcomeText,
                         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
                       }
                     ]);

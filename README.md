@@ -27,6 +27,7 @@ Uygulama, havalimanlarındaki zayıf internet bağlantısı durumlarında bile k
 ### 📶 Çevrimdışı Biniş Kartı & API Önbelleği (Service Worker)
 * **Offline Caching (Service Worker)**: `/public/service-worker.js` üzerinde özel bir akıllı önbellek mimarisi kurgulanmıştır. Uygulama kabuğu (app shell), yazı tipleri ve statik varlıklar **Cache-First** politikasıyla yüklenir.
 * **Canlı Veri Önbelleği**: Havalimanı otoritelerinden çekilen canlı biniş kartı, uçuş verileri ve simülatör durumları **Network-First, Cache-Fallback** algoritmasıyla önbelleğe alınır. İnternet kopsa dahi biniş kartınız ve son uçuş durumunuz ekranda kalmaya devam eder!
+* **Dinamik Bağlantı Durumu & Çevrimdışı Bento Kartı**: Uygulama üst barda yer alan entegre **Sinyal Monitörü (WifiOff)** ile canlı şebeke durumunu izler. İnternet kesildiğinde kullanıcıyı uyararak son başarılı senkronizasyonda korunan bento kartını ve uçuş verilerini güvenli yerel önbellekten göstermeye devam eder.
 
 ### 🎨 Gerçek PNG İkonlar & `manifest.json` Entegrasyonu
 * **PWA Manifestosu**: `/public/manifest.json` dosyası eklenerek uygulamanın mobil tarayıcılarda "Ana Ekrana Ekle" (Add to Home Screen) özelliğiyle standalone bir mobil uygulama gibi çalışması sağlanmıştır.
@@ -40,6 +41,11 @@ Uygulama, havalimanlarındaki zayıf internet bağlantısı durumlarında bile k
 ---
 
 ## ✨ Öne Çıkan Diğer Özellikler
+
+### 🛡️ Gelişmiş KVKK Gizlilik Denetim Kütüğü (Privacy Audit Report)
+* **Kişisel Veri Şeffaflığı**: KVKK/GDPR regülasyonları ile tam uyumlu olarak, sistemin (AeroAI asistanı, Bilet Okuyucu, Güvenlik geçişleri) yolcunun kişisel veya tıbbi yardım verilerine eriştiği anları saniye saniye takip eden canlı bir **Gizlilik Denetim Raporu** entegre edilmiştir.
+* **Erişim Geçmişi & Canlı Kütük**: Kullanıcı, "Erişim Raporunu İncele" butonu yardımıyla verilerinin hangi aktörler tarafından, ne amaçla ve ne zaman sorgulandığını gösteren şifreli ve onaylı kriptografik kütük geçmişini anlık olarak izleyebilir.
+* **Erişim Takip Loglama**: Raporun her açılış senaryosunda KVKK şeffaflığı kapsamında sistem kütüğüne otomatik "PRIVACY_REPORT_ACCESS" güvenlik bildirimi işlenir.
 
 ### 🗺️ Gelişmiş Bento Grid Canlı Takip Paneli
 * **Dinamik Hücre Yapısı (Bento Grid)**: Uçuş bilgilerini, kapı durumunu, güvenlik kuyruğu sürelerini ve asistan mesajlarını hiyerarşik ve minimalist bir grid yapısında sunar.

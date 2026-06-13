@@ -82,4 +82,5 @@ export interface AccessibilityProfile {
   healthConsentAgreed?: boolean;
   isUnder18?: boolean;
   guardianPhone?: string;
+  preferredLanguage?: "tr" | "en";
 }

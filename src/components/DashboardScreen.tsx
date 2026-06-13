@@ -11,11 +11,13 @@ import { LiveDataSourceBadge } from "./dashboard/LiveDataSourceBadge";
 import { AccessibilityIndicator } from "./dashboard/AccessibilityIndicator";
 import { ActiveFlightCard } from "./dashboard/ActiveFlightCard";
 import { KrisisAlertPanel } from "./dashboard/KrisisAlertPanel";
+import { WeatherWidget } from "./dashboard/WeatherWidget";
 import { BentoStatsGrid } from "./dashboard/BentoStatsGrid";
 import { TransitConsole } from "./dashboard/TransitConsole";
 import { AviationTrimSimulation } from "./dashboard/AviationTrimSimulation";
 import { AirportOperatorChart } from "./dashboard/AirportOperatorChart";
 import { ChildSafetyLock } from "./dashboard/ChildSafetyLock";
+import { PrivacyAuditReport } from "./dashboard/PrivacyAuditReport";
 import { DigitalQrTicketModal } from "./dashboard/DigitalQrTicketModal";
 
 interface DashboardScreenProps {
@@ -99,6 +101,9 @@ export default function DashboardScreen({
         {/* 5. Smart Krisis Alert Warnings Panel */}
         <KrisisAlertPanel flightData={flightData} />
 
+        {/* 5.5. Live Travel Weather Comparison Widget */}
+        <WeatherWidget flightData={flightData} />
+
         {/* 6. Bento Metrics Widgets: Gate walks, Smart ID & Live exchange rates */}
         <BentoStatsGrid 
           flightData={flightData} 
@@ -174,6 +179,9 @@ export default function DashboardScreen({
 
         {/* 11. Aircraft Boarding Trim and Balance Simulation System */}
         <AviationTrimSimulation flightData={flightData} />
+
+        {/* 11.5 Privacy and KVKK Audit Transparency Report */}
+        <PrivacyAuditReport flightData={flightData} accessibilityProfile={accessibilityProfile} />
 
         {/* 12. Child Safety / Guard Supervision System */}
         <ChildSafetyLock flightData={flightData} accessibilityProfile={accessibilityProfile} />

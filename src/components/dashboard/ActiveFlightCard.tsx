@@ -1,6 +1,7 @@
 import React from "react";
-import { Plane } from "lucide-react";
+import { Plane, Database } from "lucide-react";
 import { FlightInfo, BoardingStatus } from "../../types";
+import { useFlightStore } from "../../store/useFlightStore";
 
 interface ActiveFlightCardProps {
   flightData: FlightInfo;
@@ -13,6 +14,7 @@ export function ActiveFlightCard({
   getStatusColor,
   getStatusLabelText
 }: ActiveFlightCardProps) {
+  const { isOnline } = useFlightStore();
   return (
     <div className="bg-indigo-900 rounded-3xl text-white p-5 shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[220px]">
       {/* Subtle aircraft shadow graphic in background */}
@@ -25,7 +27,13 @@ export function ActiveFlightCard({
           <p className="text-indigo-200 text-[9px] font-bold uppercase tracking-[0.2em] mb-0.5">UÇUŞ NUMARASI</p>
           <h2 className="text-3xl font-black font-display tracking-tight text-white">{flightData.flightNumber}</h2>
         </div>
-        <div className="text-right">
+        <div className="text-right flex flex-col items-end gap-1.5">
+          {!isOnline && (
+            <span id="offline-cache-badge" className="bg-amber-500 text-slate-950 text-[7.5px] uppercase font-black px-2 py-0.5 rounded-md border border-amber-400 tracking-wider flex items-center gap-1 shadow-md shrink-0">
+              <Database className="w-2.5 h-2.5" />
+              ÇEVRİMDIŞI ÖNBELLEK
+            </span>
+          )}
           <span className={`text-[9px] uppercase tracking-wider px-3.5 py-1.5 rounded-full font-extrabold flex items-center gap-1.5 shadow-md ${getStatusColor(flightData.boardingStatus)}`}>
             <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse shrink-0"></span>
             {getStatusLabelText(flightData.boardingStatus)}
@@ -77,6 +85,9 @@ export function ActiveFlightCard({
           <span className="text-[8px] font-mono text-indigo-300 tracking-tighter uppercase font-semibold block">{flightData.airline}</span>
           {flightData.source?.confidence && (
             <span className="text-[7.5px] font-mono text-indigo-400 font-bold uppercase block">GÜVEN: %{Math.round(flightData.source.confidence * 100)}</span>
+          )}
+          {!isOnline && (
+            <span className="text-[6.5px] font-mono text-amber-300 font-black uppercase tracking-wider block animate-pulse mt-0.5">LOCAL SECURE CACHE</span>
           )}
         </div>
       </div>

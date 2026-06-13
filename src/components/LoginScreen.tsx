@@ -22,6 +22,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [kvkkAccepted, setKvkkAccepted] = React.useState(false);
+  const [preferredLanguage, setPreferredLanguage] = React.useState<"tr" | "en">("tr");
 
   // Registration states
   const [regName, setRegName] = React.useState("");
@@ -53,7 +54,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setShowError(null);
     const calculatedName = email.split("@")[0];
     const capitalized = calculatedName.charAt(0).toUpperCase() + calculatedName.slice(1);
-    onLoginSuccess(capitalized);
+    onLoginSuccess(capitalized, {
+      enabled: false,
+      type: "none",
+      kvkkChecked: kvkkAccepted,
+      preferredLanguage: preferredLanguage
+    });
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -95,7 +101,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       kvkkChecked: privacyAgreed,
       healthConsentAgreed: accessibilityType !== "none" ? healthConsentAgreed : undefined,
       isUnder18: isUnder18,
-      guardianPhone: isUnder18 ? guardianPhone : undefined
+      guardianPhone: isUnder18 ? guardianPhone : undefined,
+      preferredLanguage: preferredLanguage
     };
 
     try {
@@ -144,7 +151,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       customRequest: customRequest || undefined,
       kvkkChecked: isAccepted,
       isUnder18: isUnder18,
-      guardianPhone: isUnder18 ? guardianPhone : undefined
+      guardianPhone: isUnder18 ? guardianPhone : undefined,
+      preferredLanguage: preferredLanguage
     };
 
     if (provider === "Google") {
@@ -225,6 +233,37 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <span className="bg-indigo-50 text-indigo-800 text-[8px] font-black uppercase px-2 py-0.5 rounded">
               {activeTab === "login" ? "Oturum Aç" : "Hassas Profil"}
             </span>
+          </div>
+
+          {/* Preferred Language Selector Segmented Control */}
+          <div className="flex flex-col gap-1.5 pb-2.5 border-b border-slate-100">
+            <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+              🌐 Profil Dili / Preferred Language
+            </span>
+            <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-150">
+              <button
+                type="button"
+                onClick={() => setPreferredLanguage("tr")}
+                className={`py-2 text-[10px] font-extrabold rounded-lg transition-all cursor-pointer ${
+                  preferredLanguage === "tr"
+                    ? "bg-white text-indigo-950 shadow-xs ring-1 ring-slate-200/50"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Türkçe (TR)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreferredLanguage("en")}
+                className={`py-2 text-[10px] font-extrabold rounded-lg transition-all cursor-pointer ${
+                  preferredLanguage === "en"
+                    ? "bg-white text-indigo-950 shadow-xs ring-1 ring-slate-200/50"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                English (EN)
+              </button>
+            </div>
           </div>
 
           {showError && (

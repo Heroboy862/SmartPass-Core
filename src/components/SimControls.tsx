@@ -8,6 +8,7 @@ import { Sliders, Award, RefreshCw, Send, CheckCircle, Database, AlertTriangle, 
 import { db } from "../firebase";
 import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from "firebase/firestore";
 import { BoardingStatus } from "../types";
+import { useFlightStore } from "../store/useFlightStore";
 
 interface SimState {
   flightNumber: string;
@@ -61,6 +62,7 @@ export default function SimControls({
   onScanPredefined,
   apiLogs
 }: SimControlsProps) {
+  const { isOnline, setIsOnline } = useFlightStore();
   const [customRaw, setCustomRaw] = React.useState("");
   const [storedUsers, setStoredUsers] = React.useState<any[]>([]);
   const [auditLogs, setAuditLogs] = React.useState<any[]>([]);
@@ -136,6 +138,33 @@ export default function SimControls({
       </div>
 
       <div className="p-6 flex-1 space-y-6">
+        {/* Connection Outage Simulation Module */}
+        <div id="connectivity-sim-card" className="bg-slate-950 p-4 rounded-xl border border-rose-950/40 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-rose-400 font-semibold text-sm uppercase tracking-wider">
+              <HardDrive className="w-4 h-4" />
+              <span>Bağlantı & Çevrimdışı Simülatörü</span>
+            </div>
+            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${isOnline ? 'bg-green-950 text-green-300 border border-green-900' : 'bg-rose-950 text-rose-300 border border-rose-900 animate-pulse'}`}>
+              {isOnline ? "CANLI BAĞLANTI" : "SİMÜLE KESİNTİ"}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Havalimanında sinyal kesilme kriz senaryosunu simüle edin. Çevrimdışıyken SmartPass son başarılı bento önbelleğine sığınır.
+          </p>
+          <button
+            type="button"
+            onClick={() => setIsOnline(!isOnline)}
+            className={`w-full p-2.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 border cursor-pointer select-none transition-all duration-300 ${
+              isOnline 
+                ? "bg-rose-950/25 border-rose-900 hover:border-rose-700 text-rose-300 hover:bg-rose-950/40" 
+                : "bg-green-900 hover:bg-green-800 border-green-700 text-white"
+            }`}
+          >
+            {isOnline ? "⚠️ Sinyali Kes (Çevrimdışı Modu Simüle Et)" : "⚡ Canlı Bağlantıyı Onar (Online Yap)"}
+          </button>
+        </div>
+
         {/* Step 1: Simulated Environment State */}
         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4">
           <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm uppercase tracking-wider">

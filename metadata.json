@@ -2,7 +2,8 @@
   "name": "Smart Boarding",
   "description": "Mobilize edilmeye elverişli, taze DHMİ, İGA, TAV, HEAŞ canlı veri simülasyonlu, KVKK uyumlu kamera tarayıcı ve Gemini tabanlı Yapay Zeka Seyahat Asistanı.",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "microphone"
   ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
