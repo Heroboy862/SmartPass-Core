@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  aeroai-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aeroai-airport-corridor
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-your_gemini_api_key_here}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-your_api_key_here}
+      - DB_PASSWORD=${DB_PASSWORD:-your_database_password_here}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      - SIMULATION_API_KEY=${SIMULATION_API_KEY}
+      - TRANSPORT_PROVIDER_STRATEGY=${TRANSPORT_PROVIDER_STRATEGY:-CMS}
+      - FALLBACK_USD=${FALLBACK_USD:-38.85}
+      - FALLBACK_EUR=${FALLBACK_EUR:-42.20}
+      - FALLBACK_GBP=${FALLBACK_GBP:-50.45}
+      - FALLBACK_RUB=${FALLBACK_RUB:-0.39}
+    networks:
+      - aeroai-network
+
+networks:
+  aeroai-network:
+    driver: bridge
