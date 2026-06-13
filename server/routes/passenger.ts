@@ -1,11 +1,12 @@
 import { Router, Request, Response } from "express";
-import { adminDb, webDb, guessFlightNumber, writeDocSecurely } from "../services/firestoreSync";
+import { adminDb, webDb, guessFlightNumber, writeDocSecurely, createAuditLog } from "../services/firestoreSync";
 import { ai } from "../services/geminiService";
 import { getLiveRates, getCurrencyInfo } from "../services/currencyService";
 import { TransportDataManager } from "../services/transportAdapter";
 import { FlightAdapterHub } from "../services/flightAdapter";
 import { MOCK_BOARDINGS } from "../data/mockFlights";
 import { sendError } from "../services/errorResponse";
+import { authMiddleware } from "../middleware/auth";
 
 const router = Router();
 
@@ -42,9 +43,9 @@ router.get("/health", async (req: Request, res: Response) => {
  * Single-shot BFF (Backend-For-Frontend) endpoint for high-speed mobile clients.
  * Combines User Info, Active Flight State via Adapter, Currency Exchange Rates, and Transport Options in ONE roundtrip.
  */
-router.get("/passenger/dashboard", async (req: Request, res: Response) => {
+router.get("/passenger/dashboard", authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = (req.query.userId as string || "demo-user-selim").trim();
+    const userId = ((req as any).user?.userId || "demo-user-selim").trim();
     
     // Default passenger attributes to use if no database record exists
     let userProfile = {
@@ -157,11 +158,26 @@ router.get("/passenger/dashboard", async (req: Request, res: Response) => {
 });
 
 /**
+ * 2.5 GET /api/flights/vapid-key
+ * Fetch public VAPID key to initiate corporate standard PWA Web Push on user devices.
+ */
+router.get("/flights/vapid-key", async (req: Request, res: Response) => {
+  try {
+    const { getVapidPublicKey } = await import("../services/pushService");
+    const key = getVapidPublicKey();
+    return res.status(200).json({ success: true, publicKey: key });
+  } catch (err: any) {
+    console.error("[VAPID Error]", err);
+    return sendError(res, 500, "VAPID_KEY_ERROR", "VAPID anahtarı yüklenirken sistemsel sunucu hatası oluştu.");
+  }
+});
+
+/**
  * 3. POST /api/flights/subscribe
  * Push token subscription registry (Firebase Cloud Messaging - FCM Support).
  * Expects { userId: string, flightNumber: string, pushToken: string }
  */
-router.post("/flights/subscribe", async (req: Request, res: Response) => {
+router.post("/flights/subscribe", authMiddleware, async (req: Request, res: Response) => {
   const { userId, flightNumber, pushToken } = req.body;
 
   // Input Validation Rules
@@ -212,6 +228,27 @@ router.post("/flights/subscribe", async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("[FCM - SUB Error] Failed to process subscribe request:", err.message);
     return sendError(res, 500, "SUBSCRIPTION_ERROR", "Abonelik veritabanı kaydı esnasında bir hata meydana geldi.");
+  }
+});
+
+/**
+ * 4. POST /api/audit_logs
+ * Server-side audit logging endpoint to enforce write privilege boundaries.
+ * Fully compliant with 'sadece server yazabilir' security requirement.
+ */
+router.post("/audit_logs", authMiddleware, async (req: Request, res: Response) => {
+  const { actor, targetUser, action, details } = req.body;
+  
+  if (!actor || !targetUser || !action || !details) {
+    return sendError(res, 400, "VALIDATION_ERROR", "Tüm log parametreleri (actor, targetUser, action, details) zorunludur.");
+  }
+
+  try {
+    await createAuditLog(actor, targetUser, action, details);
+    return res.status(200).json({ success: true, message: "Denetim günlüğü başarıyla kaydedildi." });
+  } catch (err: any) {
+    console.error("[POST /api/audit_logs] Error writing log:", err.message);
+    return sendError(res, 500, "AUDIT_LOG_ERROR", "Denetim günlüğü oluşturulurken sunucu tarafında hata oluştu.");
   }
 });
 

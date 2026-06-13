@@ -1,7 +1,8 @@
 import React, { useState, useEffect, lazy, Suspense } from "react";
 import QRCode from "qrcode";
-import { Sparkles, MessageCircleMore, ArrowRight, Gift } from "lucide-react";
+import { Sparkles, MessageCircleMore, ArrowRight, Gift, Mail, Check, Loader2, AlertCircle } from "lucide-react";
 import { FlightInfo, AccessibilityProfile, BoardingStatus } from "../types";
+import { useFlightStore } from "../store/useFlightStore";
 
 const TerminalMap = lazy(() => import("./TerminalMap"));
 
@@ -39,12 +40,63 @@ export default function DashboardScreen({
   const [showQrTicket, setShowQrTicket] = useState(false);
   const [localQrUrl, setLocalQrUrl] = useState<string>("");
 
+  const jwtToken = useFlightStore(state => state.jwtToken);
+  const storePassengerName = useFlightStore(state => state.passengerName);
+  const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [emailPreviewHtml, setEmailPreviewHtml] = useState<string | null>(null);
+
+  const [recipientEmail, setRecipientEmail] = useState<string>(() => {
+    if (storePassengerName && storePassengerName.toLowerCase().includes("selim")) {
+      return "selim.yilmaz@smartpass.co";
+    }
+    return "merdanmert193@gmail.com";
+  });
+
+  const handleSendEmail = async () => {
+    if (emailStatus === "sending") return;
+    if (!recipientEmail || !recipientEmail.includes("@")) {
+      setEmailStatus("error");
+      setTimeout(() => setEmailStatus("idle"), 3000);
+      return;
+    }
+
+    setEmailStatus("sending");
+    try {
+      const response = await fetch("/api/email/send-boarding-pass", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken || ""}`
+        },
+        body: JSON.stringify({ flightData, accessibilityProfile, recipientEmail })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setEmailStatus("success");
+        if (data.method === "simulated" || data.method === "simulated_error_fallback") {
+          setEmailPreviewHtml(data.emailContentHtml);
+        }
+        setTimeout(() => {
+          setEmailStatus("idle");
+        }, 5000);
+      } else {
+        setEmailStatus("error");
+        setTimeout(() => setEmailStatus("idle"), 4000);
+      }
+    } catch (err) {
+      console.error("Boarding mail error:", err);
+      setEmailStatus("error");
+      setTimeout(() => setEmailStatus("idle"), 4000);
+    }
+  };
+
   useEffect(() => {
+    if (!flightData) return;
     const qrText = `BOARDING-${flightData.flightNumber}-${flightData.passengerName}`;
     QRCode.toDataURL(qrText, { margin: 1, width: 250 })
       .then(url => setLocalQrUrl(url))
       .catch(err => console.error("Error generating local QR code:", err));
-  }, [flightData.flightNumber, flightData.passengerName]);
+  }, [flightData?.flightNumber, flightData?.passengerName]);
 
   // Dynamic color coding based on status
   const getStatusColor = (status: BoardingStatus) => {
@@ -68,6 +120,15 @@ export default function DashboardScreen({
       default: return "Kapalı";
     }
   };
+
+  if (!flightData) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-6 bg-slate-50">
+        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-4" />
+        <p className="text-xs font-bold text-slate-500">Uçuş verileri hazırlanıyor...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc] font-sans text-slate-900 relative overflow-hidden">
@@ -253,7 +314,7 @@ export default function DashboardScreen({
               </span>
             </div>
 
-            <div className="mt-5">
+            <div className="mt-5 space-y-3">
               <button 
                 type="button"
                 onClick={() => setShowQrTicket(true)}
@@ -261,6 +322,58 @@ export default function DashboardScreen({
                 aria-label="Uçuş kartı pass detaylarını tam ekran modunda açın"
               >
                 Giriş Pass Kartını Göster / Cihaza Kaydet
+              </button>
+
+              <div className="pt-2 border-t border-slate-100/80 flex flex-col gap-1 text-left">
+                <label htmlFor="recipient-email-input" className="text-[9px] text-slate-500 font-extrabold uppercase tracking-widest pl-1">
+                  Alıcı E-Posta Adresi
+                </label>
+                <input 
+                  id="recipient-email-input"
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  placeholder="isim@ornek.com"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all shrink-0"
+                  aria-label="Biniş kartının gönderileceği hedeflenen e-posta adresi"
+                />
+              </div>
+
+              <button
+                type="button"
+                id="email-boarding-pass-btn"
+                onClick={handleSendEmail}
+                disabled={emailStatus === "sending"}
+                className={`w-full py-3 px-8 rounded-2xl font-bold text-xs shadow-sm transition-all uppercase tracking-wider min-h-[44px] flex items-center justify-center gap-2 cursor-pointer border ${
+                  emailStatus === "success"
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                    : emailStatus === "error"
+                    ? "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+                    : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                }`}
+                aria-label="Biniş kartımı e-posta ile gönder"
+              >
+                {emailStatus === "sending" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                    <span>E-Posta Gönderiliyor...</span>
+                  </>
+                ) : emailStatus === "success" ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-600 animate-bounce" />
+                    <span>E-Posta Gönderildi!</span>
+                  </>
+                ) : emailStatus === "error" ? (
+                  <>
+                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                    <span>Gönderim Hatası</span>
+                  </>
+                ) : (
+                  <>
+                    <Mail className="w-4 h-4 text-slate-500" />
+                    <span>Biniş Kartımı E-Posta Gönder</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -284,6 +397,59 @@ export default function DashboardScreen({
           flightData={flightData} 
           onClose={() => setShowQrTicket(false)} 
         />
+      )}
+
+      {/* 16.5. Immersive email preview simulated viewer */}
+      {emailPreviewHtml && (
+        <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-[#F8F9FA] rounded-[2rem] w-full max-w-sm my-auto flex flex-col border border-slate-200 shadow-2xl overflow-hidden max-h-[92%] animate-scale-up text-left">
+            <div className="bg-[#1E1B4B] text-white p-5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black tracking-widest uppercase font-display">Biniş Kartı Önizleme</span>
+                <span className="text-[8px] bg-indigo-300 text-indigo-950 font-bold px-2 py-0.5 rounded-full">SİMÜLASYON</span>
+              </div>
+              <button 
+                onClick={() => setEmailPreviewHtml(null)}
+                className="text-[10px] text-indigo-200 hover:text-white font-extrabold bg-indigo-800/60 px-3 py-1.5 rounded-xl border border-indigo-700/50 min-h-[32px] flex items-center cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+            
+            <div className="bg-slate-50 border-b border-slate-150 p-4 shrink-0">
+              <p className="text-[11px] text-slate-800 font-bold mb-1">E-Posta Başarıyla Simüle Edildi!</p>
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                SMTP ayarları tanımlı olmadığı için mail sevk işlemi simüle edildi. İletilen biniş onay e-postasının canlı görünümü:
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 bg-slate-100 min-h-[220px]">
+              <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden flex flex-col h-full">
+                <div className="p-3 bg-slate-50 border-b border-slate-150 text-[9px] text-slate-500 space-y-0.5 font-mono">
+                  <div><strong>Alıcı:</strong> {flightData.passengerName}</div>
+                  <div><strong>Kimden:</strong> SmartPass &lt;no-reply@smartpass-pro.com&gt;</div>
+                  <div className="truncate"><strong>Konu:</strong> SmartPass Dijital Biniş Kartınız - {flightData.flightNumber}</div>
+                </div>
+                <div className="bg-white p-1.5 overflow-hidden flex-1">
+                  <iframe 
+                    title="SmartPass Boarding Pass Email"
+                    srcDoc={emailPreviewHtml} 
+                    className="w-full h-80 border-0 rounded-b-xl"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-[#F8F9FA] border-t border-slate-200/60 shrink-0">
+              <button
+                onClick={() => setEmailPreviewHtml(null)}
+                className="w-full bg-indigo-900 hover:bg-indigo-850 text-white font-extrabold text-[11px] py-3 rounded-xl transition-all uppercase tracking-wider flex items-center justify-center cursor-pointer min-h-[44px]"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Persistent Bottom Assistant Prompt CTA - Styled absolutely and padded with safe translucent fade transitions */}

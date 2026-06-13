@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>AeroAI: Akıllı Seyahat & Havalimanı Kriz Asistanı</title>
+    <!-- PWA & Mobile Optimization -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#4F46E5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AeroAI" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <script>
+      (function() {
+        const NativeWebSocket = window.WebSocket;
+        if (!NativeWebSocket) return;
+
+        function RobustWebSocket(url, protocols) {
+          console.log(`[RobustWS] Intercepting WebSocket connection to: ${url}`);
+          
+          this._url = url;
+          this._protocols = protocols;
+          this._isClosed = false;
+          this._reconnectDelay = 1000;
+          this._maxReconnectDelay = 30000;
+          this._backoffMultiplier = 1.5;
+          
+          this._listeners = {
+            open: [],
+            message: [],
+            error: [],
+            close: []
+          };
+
+          this._onopen = null;
+          this._onmessage = null;
+          this._onerror = null;
+          this._onclose = null;
+
+          this._connect();
+        }
+
+        // Set up delegation prototype chain for instanceof checks
+        RobustWebSocket.prototype = Object.create(NativeWebSocket.prototype);
+        RobustWebSocket.prototype.constructor = RobustWebSocket;
+
+        RobustWebSocket.prototype._connect = function() {
+          if (this._isClosed) return;
+          
+          try {
+            console.log(`[RobustWS] Creating underlying connection to: ${this._url}`);
+            const ws = new NativeWebSocket(this._url, this._protocols);
+            this._ws = ws;
+
+            ws.onopen = (event) => {
+              this._reconnectDelay = 1000;
+              if (this._onopen) {
+                try { this._onopen.call(this, event); } catch(e) { console.error(e); }
+              }
+              const listeners = this._listeners['open'] || [];
+              listeners.forEach(cb => {
+                try { cb.call(this, event); } catch(e) { console.error(e); }
+              });
+            };
+
+            ws.onmessage = (event) => {
+              if (this._onmessage) {
+                try { this._onmessage.call(this, event); } catch(e) { console.error(e); }
+              }
+              const listeners = this._listeners['message'] || [];
+              listeners.forEach(cb => {
+                try { cb.call(this, event); } catch(e) { console.error(e); }
+              });
+            };
+
+            ws.onerror = (event) => {
+              if (this._onerror) {
+                try { this._onerror.call(this, event); } catch(e) { console.error(e); }
+              }
+              const listeners = this._listeners['error'] || [];
+              listeners.forEach(cb => {
+                try { cb.call(this, event); } catch(e) { console.error(e); }
+              });
+            };
+
+            ws.onclose = (event) => {
+              if (this._onclose) {
+                try { this._onclose.call(this, event); } catch(e) { console.error(e); }
+              }
+              const listeners = this._listeners['close'] || [];
+              listeners.forEach(cb => {
+                try { cb.call(this, event); } catch(e) { console.error(e); }
+              });
+
+              if (!this._isClosed) {
+                this._scheduleReconnect();
+              }
+            };
+          } catch (err) {
+            console.error("[RobustWS] Native creation failed:", err);
+            this._scheduleReconnect();
+          }
+        };
+
+        RobustWebSocket.prototype._scheduleReconnect = function() {
+          if (this._isClosed) return;
+          console.log(`[RobustWS] Scheduling reconnection in ${this._reconnectDelay}ms...`);
+          setTimeout(() => {
+            this._reconnectDelay = Math.min(this._reconnectDelay * this._backoffMultiplier, this._maxReconnectDelay);
+            this._connect();
+          }, this._reconnectDelay);
+        };
+
+        RobustWebSocket.prototype.send = function(data) {
+          if (this._ws && this._ws.readyState === NativeWebSocket.OPEN) {
+            this._ws.send(data);
+          } else {
+            console.warn("[RobustWS] Buffered or ignored send() since socket state was not OPEN");
+          }
+        };
+
+        RobustWebSocket.prototype.close = function(code, reason) {
+          this._isClosed = true;
+          if (this._ws) {
+            this._ws.close(code, reason);
+          }
+        };
+
+        RobustWebSocket.prototype.addEventListener = function(type, callback) {
+          if (this._listeners[type]) {
+            this._listeners[type].push(callback);
+          }
+        };
+
+        RobustWebSocket.prototype.removeEventListener = function(type, callback) {
+          if (this._listeners[type]) {
+            this._listeners[type] = this._listeners[type].filter(cb => cb !== callback);
+          }
+        };
+
+        // Properties delegation via robust getters and setters
+        Object.defineProperties(RobustWebSocket.prototype, {
+          readyState: {
+            get: function() {
+              return this._ws ? this._ws.readyState : NativeWebSocket.CLOSED;
+            }
+          },
+          bufferedAmount: {
+            get: function() {
+              return this._ws ? this._ws.bufferedAmount : 0;
+            }
+          },
+          extensions: {
+            get: function() {
+              return this._ws ? this._ws.extensions : "";
+            }
+          },
+          protocol: {
+            get: function() {
+              return this._ws ? this._ws.protocol : "";
+            }
+          },
+          url: {
+            get: function() {
+              return this._url;
+            }
+          },
+          onopen: {
+            get: function() { return this._onopen; },
+            set: function(val) { this._onopen = val; }
+          },
+          onmessage: {
+            get: function() { return this._onmessage; },
+            set: function(val) { this._onmessage = val; }
+          },
+          onerror: {
+            get: function() { return this._onerror; },
+            set: function(val) { this._onerror = val; }
+          },
+          onclose: {
+            get: function() { return this._onclose; },
+            set: function(val) { this._onclose = val; }
+          }
+        });
+
+        // Copy static constants
+        ["CONNECTING", "OPEN", "CLOSING", "CLOSED"].forEach(key => {
+          RobustWebSocket[key] = NativeWebSocket[key];
+        });
+
+        window.WebSocket = RobustWebSocket;
+        console.log("[RobustWS] Successfully injected robust client-side WebSocket proxy with exponential backoff.");
+
+        window.addEventListener("unhandledrejection", function(event) {
+          if (event.reason && (event.reason.toString().includes("WebSocket") || event.reason.toString().includes("websocket"))) {
+            console.warn("[RobustWS] Suppressed unhandled WebSocket rejection:", event.reason);
+            event.preventDefault();
+          }
+        });
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-Cffgw3E9.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-lIGuy7Ny.css">
+  </head>
+  <body class="bg-slate-950 antialiased select-none overflow-x-hidden">
+    <div id="root"></div>
+  </body>
+</html>
+

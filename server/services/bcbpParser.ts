@@ -200,5 +200,5 @@ export function parseBoardingPassText(rawText: string): { flightId?: string, cus
     return { custom: true, data: parsedData };
   }
 
-  return { flightId: "TK1903", custom: false };
+  return null;
 }

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { doc, onSnapshot, addDoc, collection } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import { FlightInfo, AccessibilityProfile, ChatMessage, BoardingStatus } from "../types";
 
@@ -14,6 +14,7 @@ export interface SimulatorState {
 interface FlightState {
   // Session State
   passengerName: string | null;
+  jwtToken: string | null;
   activeScreen: "login" | "dashboard" | "scanner" | "chat";
   accessibilityProfile: AccessibilityProfile | null;
   flightData: FlightInfo | null;
@@ -35,6 +36,7 @@ interface FlightState {
   // Setters
   initStore: () => Promise<void>;
   setPassengerName: (name: string | null) => void;
+  setJwtToken: (token: string | null) => void;
   setActiveScreen: (screen: "login" | "dashboard" | "scanner" | "chat") => void;
   setAccessibilityProfile: (profile: AccessibilityProfile | null) => void;
   setFlightData: (data: FlightInfo | null) => void;
@@ -56,6 +58,7 @@ interface FlightState {
   // Sync controls
   startFlightSync: (flightNumber: string) => void;
   stopFlightSync: () => void;
+  registerPushToken: (token: string, isPwa?: boolean) => Promise<void>;
   logout: () => void;
 }
 
@@ -112,6 +115,7 @@ export const useFlightStore = create<FlightState>((set, get) => {
 
   return {
     passengerName: getSessionItem("secure_passengerName"),
+    jwtToken: getSessionItem("secure_jwtToken"),
     activeScreen: (getSessionItem("secure_activeScreen") as any) || "login",
     accessibilityProfile: getSessionJsonItem("secure_accessibilityProfile"),
     flightData: getSessionJsonItem("secure_flightData") ? initialFlightData : null,
@@ -167,6 +171,15 @@ export const useFlightStore = create<FlightState>((set, get) => {
         sessionStorage.removeItem("secure_passengerName");
       }
       set({ passengerName: name });
+    },
+
+    setJwtToken: (token) => {
+      if (token) {
+        sessionStorage.setItem("secure_jwtToken", token);
+      } else {
+        sessionStorage.removeItem("secure_jwtToken");
+      }
+      set({ jwtToken: token });
     },
 
     setActiveScreen: (screen) => {
@@ -234,13 +247,19 @@ export const useFlightStore = create<FlightState>((set, get) => {
 
     logAuditTrail: async (actor, targetUser, action, details) => {
       try {
-        await addDoc(collection(db, "audit_logs"), {
-          timestamp: new Date().toISOString(),
-          actor,
-          targetUser,
-          action,
-          details
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const token = get().jwtToken;
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        const response = await fetch("/api/audit_logs", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ actor, targetUser, action, details }),
         });
+        if (!response.ok) {
+          throw new Error(`Server status: ${response.status}`);
+        }
       } catch (err) {
         console.warn("Audit logs collection registration failed:", err);
       }
@@ -263,9 +282,14 @@ export const useFlightStore = create<FlightState>((set, get) => {
       logActivity(`Simülasyon Güncellendi: ${Object.keys(newState).join(", ")}`);
 
       try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const token = get().jwtToken;
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
         const res = await fetch("/api/simulation/update", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(updated)
         });
         if (res.ok) {
@@ -283,9 +307,14 @@ export const useFlightStore = create<FlightState>((set, get) => {
       logActivity(`Biniş Kartı Okundu: ${rawText.substring(0, 25)}...`);
 
       try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const token = get().jwtToken;
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
         const res = await fetch("/api/parse-boarding-pass", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ rawText })
         });
         if (res.ok) {
@@ -346,9 +375,14 @@ export const useFlightStore = create<FlightState>((set, get) => {
       logActivity("Kullanıcı sorgusu Gemini asistanına iletildi.");
 
       try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const token = get().jwtToken;
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
         const res = await fetch("/api/assistant/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             messages: updatedMessages,
             flightData: flightData,
@@ -421,6 +455,7 @@ export const useFlightStore = create<FlightState>((set, get) => {
               setTimeout(() => {
                 set({
                   passengerName: null,
+                  jwtToken: null,
                   accessibilityProfile: null,
                   flightData: null,
                   showKvkkWipeModal: true,
@@ -459,12 +494,47 @@ export const useFlightStore = create<FlightState>((set, get) => {
       }
     },
 
+    registerPushToken: async (token: string, isPwa = false) => {
+      const { jwtToken, flightData, passengerName } = get();
+      if (!jwtToken) {
+        console.log("[Push Store] User not authenticated yet. Caching token for later registration.");
+        return;
+      }
+      const flightNumber = flightData?.flightNumber || "TK-1903";
+      const uId = "usr_" + (passengerName || "selim").toLowerCase().replace(/[^a-z0-9]/g, "_");
+
+      try {
+        const response = await fetch("/api/flights/subscribe", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${jwtToken}`
+          },
+          body: JSON.stringify({
+            userId: uId,
+            flightNumber,
+            pushToken: token
+          })
+        });
+        if (response.ok) {
+          const resJson = await response.json();
+          console.log("[Push Store] Subscribe success:", resJson);
+          get().logActivity(`${isPwa ? "Web PWA" : "Native Mobil"} anlık bildirim aboneliği sunucuya kaydedildi.`);
+        } else {
+          console.error("[Push Store] Subscribe status error:", response.status);
+        }
+      } catch (err: any) {
+        console.error("[Push Store] Subscribe network error:", err.message);
+      }
+    },
+
     logout: () => {
       const { stopFlightSync, logActivity } = get();
       stopFlightSync();
       sessionStorage.clear();
       set({
         passengerName: null,
+        jwtToken: null,
         accessibilityProfile: null,
         flightData: null,
         activeScreen: "login"

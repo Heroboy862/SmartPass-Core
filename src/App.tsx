@@ -8,18 +8,19 @@ import {
   Wifi, WifiOff, Battery, ShieldAlert, Cpu, Sparkles, AlertTriangle, Play, HelpCircle, 
   Terminal, Globe, BookOpen, Layers, ShieldCheck
 } from "lucide-react";
-import LoginScreen from "./components/LoginScreen";
-import ScannerScreen from "./components/ScannerScreen";
-import AssistantChat from "./components/AssistantChat";
 import { useFlightStore } from "./store/useFlightStore";
 import { PushNotifications } from "@capacitor/push-notifications";
 
 const SimControls = lazy(() => import("./components/SimControls"));
 const DashboardScreen = lazy(() => import("./components/DashboardScreen"));
+const LoginScreen = lazy(() => import("./components/LoginScreen"));
+const ScannerScreen = lazy(() => import("./components/ScannerScreen"));
+const AssistantChat = lazy(() => import("./components/AssistantChat"));
 
 export default function App() {
   const {
     passengerName,
+    jwtToken,
     activeScreen,
     accessibilityProfile,
     flightData,
@@ -30,6 +31,7 @@ export default function App() {
     isChatLoading,
     initStore,
     setPassengerName,
+    setJwtToken,
     setActiveScreen,
     setAccessibilityProfile,
     setFlightData,
@@ -38,6 +40,7 @@ export default function App() {
     updateSimState,
     scanBoardingPass,
     sendMessage,
+    registerPushToken,
     logout,
     logActivity,
     logAuditTrail,
@@ -70,6 +73,9 @@ export default function App() {
     initStore();
   }, [initStore]);
 
+  const [deviceToken, setDeviceToken] = React.useState<string | null>(null);
+  const [isPwa, setIsPwa] = React.useState(false);
+
   // Synchronized Capacitor native push notification registration when deployed as a native app wrap
   useEffect(() => {
     const setupCapacitorPush = async () => {
@@ -89,6 +95,8 @@ export default function App() {
             PushNotifications.addListener("registration", (token) => {
               logActivity("Native Push anlık bildirim cihaz kaydı başarılı.");
               console.log("Capacitor Push Registration Token: ", token.value);
+              setDeviceToken(token.value);
+              setIsPwa(false);
             });
 
             PushNotifications.addListener("pushNotificationReceived", (notification) => {
@@ -98,7 +106,7 @@ export default function App() {
           }
         } else {
           // Silently pass without triggering native UI warnings
-          console.log("AeroAI Running in Web/Desktop browser view. Native plugins are disabled.");
+          console.log("AeroAI Running in Web/Desktop browser view. Web configurations will initialize.");
         }
       } catch (err) {
         console.warn("Capacitor Push registration ignored:", err);
@@ -106,6 +114,73 @@ export default function App() {
     };
     setupCapacitorPush();
   }, [logActivity]);
+
+  // Synchronized Browser PWA Web Push notification registration standard
+  useEffect(() => {
+    const setupWebPush = async () => {
+      try {
+        const cap = (window as any).Capacitor;
+        const isNativePlatform = cap && typeof cap.getPlatform === "function" && cap.getPlatform() !== "web";
+
+        if (!isNativePlatform && "serviceWorker" in navigator && "PushManager" in window) {
+          const permission = await Notification.requestPermission();
+          if (permission === "granted") {
+            const reg = await navigator.serviceWorker.ready;
+            
+            // Retrieve standard dynamic public key generated securely in pushService
+            const vapidRes = await fetch("/api/flights/vapid-key");
+            const vapidData = await vapidRes.json();
+            
+            if (vapidData.success && vapidData.publicKey) {
+              const urlBase64ToUint8Array = (base64String: string) => {
+                const padding = '='.repeat((4 - base64String.length % 4) % 4);
+                const base64 = (base64String + padding)
+                  .replace(/\-/g, '+')
+                  .replace(/_/g, '/');
+
+                const rawData = window.atob(base64);
+                const outputArray = new Uint8Array(rawData.length);
+
+                for (let i = 0; i < rawData.length; ++i) {
+                  outputArray[i] = rawData.charCodeAt(i);
+                }
+                return outputArray;
+              };
+
+              const convertedKey = urlBase64ToUint8Array(vapidData.publicKey);
+              
+              // Register browser PWA stream
+              const subscription = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: convertedKey
+              });
+
+              const serializedSub = JSON.stringify(subscription);
+              console.log("PWA Web Push Subscription:", serializedSub);
+              setDeviceToken(serializedSub);
+              setIsPwa(true);
+            }
+          }
+        }
+      } catch (webPushErr: any) {
+        console.warn("PWA Web Push setup skipped or blocked by browser permissions:", webPushErr.message);
+      }
+    };
+
+    // Execute with a slight buffer after initial mounting
+    const timer = setTimeout(() => {
+      setupWebPush();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [logActivity]);
+
+  // Auto-send token to secure corporate database upon login session detection
+  useEffect(() => {
+    if (jwtToken && deviceToken) {
+      registerPushToken(deviceToken, isPwa);
+    }
+  }, [jwtToken, deviceToken, isPwa, registerPushToken]);
 
   // Record audit log when assistant accesses the passenger profile and health needs
   useEffect(() => {
@@ -197,8 +272,17 @@ export default function App() {
               </div>
             )}
             {activeScreen === "login" && (
-              <LoginScreen 
-                onLoginSuccess={(name, accessibility) => {
+              <Suspense fallback={
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-slate-600 bg-white min-h-[300px]">
+                  <div className="w-8 h-8 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin mb-4" />
+                  <p className="text-xs font-bold text-slate-500">Giriş Ekranı Yükleniyor...</p>
+                </div>
+              }>
+                <LoginScreen 
+                onLoginSuccess={(name, accessibility, token) => {
+                  if (token) {
+                    setJwtToken(token);
+                  }
                   setPassengerName(name);
                   if (flightData) {
                     setFlightData({
@@ -276,6 +360,7 @@ export default function App() {
                   setActiveScreen("dashboard");
                 }} 
               />
+              </Suspense>
             )}
 
             {activeScreen === "dashboard" && (
@@ -296,20 +381,34 @@ export default function App() {
             )}
 
             {activeScreen === "scanner" && (
-              <ScannerScreen 
-                onScanComplete={scanBoardingPass}
-                onClose={() => setActiveScreen("dashboard")}
-              />
+              <Suspense fallback={
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-slate-600 bg-white min-h-[300px]">
+                  <div className="w-8 h-8 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin mb-4" />
+                  <p className="text-xs font-bold text-slate-500">Tarayıcı Yükleniyor...</p>
+                </div>
+              }>
+                <ScannerScreen 
+                  onScanComplete={scanBoardingPass}
+                  onClose={() => setActiveScreen("dashboard")}
+                />
+              </Suspense>
             )}
 
              {activeScreen === "chat" && (
-              <AssistantChat 
-                messages={messages}
-                onSendMessage={sendMessage}
-                isLoading={isChatLoading}
-                onClose={() => setActiveScreen("dashboard")}
-                flightData={flightData}
-              />
+              <Suspense fallback={
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-slate-600 bg-white min-h-[300px]">
+                  <div className="w-8 h-8 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin mb-4" />
+                  <p className="text-xs font-bold text-slate-500">Asistan Yükleniyor...</p>
+                </div>
+              }>
+                <AssistantChat 
+                  messages={messages}
+                  onSendMessage={sendMessage}
+                  isLoading={isChatLoading}
+                  onClose={() => setActiveScreen("dashboard")}
+                  flightData={flightData}
+                />
+              </Suspense>
             )}
 
             {/* Elegant full-screen KVKK Auto-Retention Wipe modal overlay */}

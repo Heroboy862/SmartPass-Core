@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AeroPass</string>
+    <string name="title_activity_main">AeroPass</string>
+    <string name="package_name">co.smartpass.aeropass</string>
+    <string name="custom_url_scheme">co.smartpass.aeropass</string>
+</resources>

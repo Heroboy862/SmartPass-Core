@@ -7,7 +7,7 @@ import globals from "globals";
 
 export default [
   {
-    ignores: ["dist", "node_modules", "scripts", "vite.config.ts", "public", ".github"]
+    ignores: ["dist", "node_modules", "scripts", "vite.config.ts", "public", ".github", "ios", "android", "capacitor.config.ts"]
   },
   js.configs.recommended,
   {

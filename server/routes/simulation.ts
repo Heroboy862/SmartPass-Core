@@ -8,6 +8,21 @@ const router = Router();
 
 // Route to fetch simulated variables
 router.get("/state", async (req: Request, res: Response) => {
+  // Security lock for production environment
+  if (process.env.NODE_ENV === "production") {
+    const headerKey = req.headers["x-simulation-api-key"] || req.headers["authorization"];
+    const expectedKey = process.env.SIMULATION_API_KEY;
+
+    if (!expectedKey || headerKey !== expectedKey) {
+      return sendError(
+        res,
+        403,
+        "FORBIDDEN",
+        "Simulation state endpoints are disabled or require administrative API key in production."
+      );
+    }
+  }
+
   const vars = getSimVariables();
   if (vars.flightNumber) {
     try {
@@ -118,6 +133,39 @@ router.post("/update", async (req: Request, res: Response) => {
   const updated = updateSimVariables(updatePayload);
   if (updated.flightNumber) {
     await FlightAdapterHub.getInstance().syncFlightNow(updated.flightNumber);
+
+    // Dynamic corporate push alert dispatch when flight status or gate alters
+    const { dispatchFlightPushNotifications } = await import("../services/pushService");
+    
+    if (updatePayload.gate !== undefined) {
+      await dispatchFlightPushNotifications(updated.flightNumber, "GATE_CHANGE", {
+        title: "AeroPass - Kapı Güncellendi 🚪",
+        body: `${updated.flightNumber} uçuşunuzun biniş kapısı ${updatePayload.gate} olarak güncellenmiştir. Lütfen panonuzu kontrol edin.`,
+        gate: updatePayload.gate,
+        boardingStatus: updated.boardingStatus
+      });
+    } else if (updatePayload.boardingStatus === "Delayed") {
+      await dispatchFlightPushNotifications(updated.flightNumber, "DELAY", {
+        title: "AeroPass - Uçuş Bilgilendirmesi ⚠️",
+        body: `${updated.flightNumber} uçuşunda rötar veya operasyonel düzenleme mevcuttur. Detaylar ve kriz yönetimi için lütfen tıklayın.`,
+        gate: updated.gate,
+        boardingStatus: "Delayed"
+      });
+    } else if (updatePayload.boardingStatus === "Cancelled") {
+      await dispatchFlightPushNotifications(updated.flightNumber, "CANCELLATION", {
+        title: "AeroPass - Uçuş İPTAL Edildi 🚨",
+        body: `${updated.flightNumber} uçuşunuz üzülerek iptal edilmiştir. Yolcu haklarınız ve alternatif uçuşlar için asistanınız hazır.`,
+        gate: updated.gate,
+        boardingStatus: "Cancelled"
+      });
+    } else if (updatePayload.boardingStatus === "Boarding Now") {
+      await dispatchFlightPushNotifications(updated.flightNumber, "BOARDING", {
+        title: "AeroPass - Uçuş Biniş Çağrısı ✈️",
+        body: `${updated.flightNumber} uçuşu için biniş işlemleri başladı. En kısa sürede ${updated.gate || "G12"} kapısına yöneliniz!`,
+        gate: updated.gate,
+        boardingStatus: "Boarding Now"
+      });
+    }
 
     // Dynamic KVKK Data Retention policy - auto purge passenger records once flight departs/closes
     if (updated.boardingStatus === "Closed") {

@@ -4,7 +4,7 @@
  */
 
 import React, { useRef, useEffect } from "react";
-import { MessageSquare, Send, Sparkles, ArrowLeft, RefreshCw, User, Brain, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
+import { MessageSquare, Send, Sparkles, ArrowLeft, RefreshCw, User, Brain, Mic, MicOff, Volume2, VolumeX, Compass, MapPin, SkipBack, SkipForward } from "lucide-react";
 import { ChatMessage, FlightInfo } from "../types";
 import { useFlightStore } from "../store/useFlightStore";
 
@@ -37,7 +37,7 @@ export default function AssistantChat({
   onClose,
   flightData
 }: AssistantChatProps) {
-  const { accessibilityProfile, isOnline } = useFlightStore();
+  const { accessibilityProfile, isOnline, logActivity, logAuditTrail } = useFlightStore();
   const profileLanguage = accessibilityProfile?.preferredLanguage || "tr";
 
   const [inputText, setInputText] = React.useState("");
@@ -51,6 +51,184 @@ export default function AssistantChat({
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(typeof window !== "undefined" ? window.speechSynthesis : null);
   const lastMessageIdRef = useRef<string | null>(null);
+
+  // Audio Guide Navigator State
+  const [isNavActive, setIsNavActive] = React.useState(false);
+  const [currentNavStep, setCurrentNavStep] = React.useState(0);
+  const [isNavSpeaking, setIsNavSpeaking] = React.useState(false);
+
+  const getNavSteps = () => {
+    const gate = (flightData?.gate || "A-12").toUpperCase().trim();
+    const isEn = profileLanguage === "en";
+    const gateLetter = gate.charAt(0);
+
+    if (isEn) {
+      return [
+        {
+          title: "Step 1: Out of Security Checkpoint",
+          text: "You have passed the security checkpoint. Your voice-assisted airport navigation is now active.",
+          assistive: "Please find the yellow tactile guide pathway directly ahead of the terminal exit lanes."
+        },
+        {
+          title: "Step 2: Walkway Corridor Alignment",
+          text: gateLetter === "A" 
+            ? "Turn right following the signs and proceed straight toward 'A Gates' corridor. You will reach the boarding pier in about 100 meters."
+            : gateLetter === "B"
+            ? "Turn left following the signs and keep straight toward 'B Gates' corridor. Tactile flooring markers are positioned along the route."
+            : gateLetter === "C"
+            ? "Pass the duty-free shops and the lounge areas, then head directly towards the 'C Gates' main concourse."
+            : "Follow the central corridor straight towards the high-intensity light guides, verifying your gate direction from the overhead flight displays.",
+          assistive: "Airport obstacles are cleared on this route. Please proceed forward at a comfortable pace."
+        },
+        {
+          title: "Step 3: Accessing Moving Walkways",
+          text: "You can use the high-speed moving walkways along your path. Pay attention to the audio indicator announcements on the left and right sides.",
+          assistive: "Keep to your right when standing on the moving walkway to keep the passage clear."
+        },
+        {
+          title: "Step 4: Tactile Track Alignment & Obstacles",
+          text: "In compliance with the vision impairment support route, follow the yellow tactile paving guidelines. Your smart cane will vibrate if there are obstacles.",
+          assistive: "Passenger support service officers are stationed near your current area for supplementary navigation support."
+        },
+        {
+          title: "Step 5: Welcome to Gate Arrival",
+          text: `You have arrived at your boarding gate, Gate ${gate}. An IGA/TAV passenger assistance agent is currently waiting at the desk to help you. Have a safe flight!`,
+          assistive: `Prepare your physical or digital boarding pass. Your gate assistant is wearing a high-visibility yellow corporate vest.`
+        }
+      ];
+    } else {
+      return [
+        {
+          title: "Adım 1: Güvenlik Bölgesinden Çıkış",
+          text: "Güvenlik kontrol noktasından çıkış yaptınız. Havalimanı adım adım akıllı sesli rehberiniz etkinleştirildi.",
+          assistive: "Terminal çıkış kapısı önündeki sarı renkli hissedilebilir kılavuz yüzeye yönlenin."
+        },
+        {
+          title: "Adım 2: Geçiş Koridoru Seçimi",
+          text: gateLetter === "A"
+            ? "Tabelaları takip ederek sağa dönün ve 'A Kapıları' koridoruna doğru düz ilerleyin. Yaklaşık 100 metre sonra biniş rıhtımına ulaşacaksınız."
+            : gateLetter === "B"
+            ? "Tabelaları takip ederek sola dönün ve 'B Kapıları' koridoruna doğru düz devam edin. Yön bulucu sarı kabartmalar zemin üzerindedir."
+            : gateLetter === "C"
+            ? "Lounge ve duty free alanlarını geçerek 'C Kapıları' ana peronuna doğru doğrudan düz ilerleyin."
+            : "Ana uçuş bilgi ekranlarından kalkış kapınızın yön simgesini doğrulayarak orta koridordan düz ilerleyin.",
+          assistive: "Engel algılama modu aktiftir. Lütfen koridorda normal bir yürüyüş temposu tutturun."
+        },
+        {
+          title: "Adım 3: Akıllı Yürüyen Bantlar",
+          text: "Uçuş kapınıza giden yoldaki hızlı yürüyen asistan bantlarını kullanabilirsiniz. Sol ve sağ yöndeki zemin uyarısı çınlama seslerini takip ediniz.",
+          assistive: "Bant üzerinde sağ tarafta sabit durabilir veya sol kulvarı biniş personeline bırakabilirsiniz."
+        },
+        {
+          title: "Adım 4: Hissedilebilir Yol & Yan Güvenlik bariyerleri",
+          text: "Görme engeli yardım hattı kapsamında, biniş koridoru boyunca zemin üzerinde bulunan sarı hissettirilebilir kılavuz çizgileri takip edin. Akıllı bastonunuz engellere karşı titreşim uyarısı üretecektir.",
+          assistive: "Koridorlarda her depar anında yardımcı IGA destek personelleri 50 metrede bir güvenlik için hazırdır."
+        },
+        {
+          title: "Adım 5: Uçuş Biniş Kapısına Varış",
+          text: `Kalkış kapınız olan ${gate} numaralı biniş kapısına ulaştınız. Şu anda IGA/TAV engelsiz biniş asistan personeli sizi karşılamak üzere kapıda beklemektedir. İyi uçuşlar dileriz!`,
+          assistive: `Uçuş biniş kartınızı veya biyometrik yüz kimlik kartınızı hazırlayabilirsiniz. Yardım personeli hemen sağ yanınızdadır.`
+        }
+      ];
+    }
+  };
+
+  const getActiveLanguageVoice = () => {
+    if (!synthRef.current) return null;
+    const voices = synthRef.current.getVoices();
+    const targetVoiceLang = profileLanguage === "en" ? "en" : "tr";
+    return voices.find((v) => v.lang.toLowerCase().startsWith(targetVoiceLang)) || null;
+  };
+
+  const playNavStepValue = (stepIndex: number) => {
+    if (!synthRef.current) return;
+    synthRef.current.cancel();
+
+    const steps = getNavSteps();
+    const activeStep = steps[stepIndex];
+    if (!activeStep) return;
+
+    const readText = `${activeStep.title}. ${activeStep.text}. ${profileLanguage === "en" ? "Tactile Tip" : "Hissedilebilir ipucu"}: ${activeStep.assistive}`;
+    const utterance = new SpeechSynthesisUtterance(readText);
+    utterance.lang = profileLanguage === "en" ? "en-US" : "tr-TR";
+
+    const matchedVoice = getActiveLanguageVoice();
+    if (matchedVoice) {
+      utterance.voice = matchedVoice;
+    }
+
+    utterance.onstart = () => {
+      setIsNavSpeaking(true);
+    };
+
+    utterance.onend = () => {
+      setIsNavSpeaking(false);
+    };
+
+    utterance.onerror = (e) => {
+      console.warn("[Nav Speech Failed]", e);
+      setIsNavSpeaking(false);
+    };
+
+    synthRef.current.speak(utterance);
+    
+    // Log user step navigation action
+    logActivity(
+      profileLanguage === "en" 
+        ? `Vision voice route guide: Navigation Step ${stepIndex + 1} requested.` 
+        : `Sesli kılavuz yol tarifi: Görme engelli navigasyon adımı ${stepIndex + 1} seslendirildi.`
+    );
+  };
+
+  const toggleSpeakNavStep = () => {
+    if (isNavSpeaking) {
+      if (synthRef.current) {
+        synthRef.current.cancel();
+      }
+      setIsNavSpeaking(false);
+    } else {
+      playNavStepValue(currentNavStep);
+    }
+  };
+
+  const playNavFull = () => {
+    if (!synthRef.current) return;
+    synthRef.current.cancel();
+
+    const steps = getNavSteps();
+    const fullText = steps.map((s) => `${s.title}: ${s.text}`).join(". ");
+
+    const utterance = new SpeechSynthesisUtterance(fullText);
+    utterance.lang = profileLanguage === "en" ? "en-US" : "tr-TR";
+
+    const matchedVoice = getActiveLanguageVoice();
+    if (matchedVoice) {
+      utterance.voice = matchedVoice;
+    }
+
+    utterance.onstart = () => {
+      setIsNavSpeaking(true);
+    };
+
+    utterance.onend = () => {
+      setIsNavSpeaking(false);
+    };
+
+    utterance.onerror = (e) => {
+      console.warn("[Voice navigation full failed]", e);
+      setIsNavSpeaking(false);
+    };
+
+    synthRef.current.speak(utterance);
+    
+    // Log to security audit log
+    logAuditTrail(
+      "AI_VOICE_ASSISTANT",
+      accessibilityProfile?.customRequest || "Vision Passenger",
+      "ROUTE_AUDIO_NARRATIVE_FULL",
+      `Yolcu tüm biniş kapısı güzergahını sesli olarak baştan sona başlattı. Kapı: ${flightData?.gate}`
+    ).catch(e => console.warn(e));
+  };
 
   // Auto scroll to chat base
   useEffect(() => {
@@ -271,6 +449,168 @@ export default function AssistantChat({
         <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-ping"></div>
         <span>{alertBannerText}</span>
       </div>
+
+      {/* Step-by-Step Audio Route Directions Integration for Vision Impairment */}
+      {accessibilityProfile?.enabled && accessibilityProfile?.type === 'vision' && (
+        <div className="bg-gradient-to-tr from-indigo-900 to-indigo-950 text-white p-4.5 border-b border-indigo-800 shadow-lg animate-fade-in" id="voice-routing-vision-panel">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5">
+            <div className="flex items-start gap-2.5">
+              <div className="w-7.5 h-7.5 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center animate-pulse mt-0.5">
+                <Compass className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-[11.5px] font-black tracking-tight flex flex-wrap items-center gap-1.5">
+                  {profileLanguage === "en" ? "Sesli Kapı Rehberi (Vision Route)" : "Sesli Adım Adım Yol Tarifi"}
+                  <span className="text-[8px] uppercase bg-amber-500/20 text-amber-300 font-extrabold px-1.5 py-0.5 rounded border border-amber-500/30">
+                    {profileLanguage === "en" ? "ASSISTIVE AUDIO" : "SES REHBERLİ"}
+                  </span>
+                </h4>
+                <p className="text-[9.5px] text-slate-300 font-medium">
+                  {profileLanguage === "en" ? "Spatial step guide to Gate: " : "Kapıya giden adım adım sesli rehber ve konum bilgisi: Kapı "}
+                  <strong className="text-orange-400 font-mono">{(flightData?.gate || "A-12")}</strong>
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const nextVal = !isNavActive;
+                setIsNavActive(nextVal);
+                if (nextVal) {
+                  // auto-play first step
+                  playNavStepValue(0);
+                } else if (synthRef.current) {
+                  synthRef.current.cancel();
+                  setIsNavSpeaking(false);
+                }
+              }}
+              className={`text-[9px] font-extrabold uppercase px-3 py-1.5 rounded-xl transition-all border cursor-pointer self-start sm:self-auto ${
+                isNavActive 
+                  ? "bg-indigo-950 border-indigo-800 text-indigo-300 hover:text-white" 
+                  : "bg-orange-500 border-orange-400 text-white shadow-xs hover:bg-orange-600 active:scale-95"
+              }`}
+            >
+              {isNavActive 
+                ? (profileLanguage === "en" ? "Hide Voice Panel" : "Asistanı Kapat") 
+                : (profileLanguage === "en" ? "Start Audio Guide" : "Akıllı Asistanı Dinle")
+              }
+            </button>
+          </div>
+
+          {isNavActive && (
+            <div className="bg-indigo-950/50 border border-indigo-800/40 rounded-2xl p-4 space-y-3.5">
+              {/* Progress and Level */}
+              <div className="flex justify-between items-center text-[10px] font-mono font-bold text-slate-300">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+                  {profileLanguage === "en" ? "ACTIVE VOICE RECTIFICATION" : "SESLİ YÖNLENDİRME NAVİGASYONU"}
+                </span>
+                <span className="bg-indigo-950 px-2 py-0.5 rounded border border-indigo-800">
+                  {currentNavStep + 1} / 5
+                </span>
+              </div>
+
+              {/* Progress Bar indicator */}
+              <div className="w-full h-1 bg-indigo-900/50 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-orange-500 rounded-full transition-all duration-300"
+                  style={{ width: `${((currentNavStep + 1) / 5) * 100}%` }}
+                />
+              </div>
+
+              {/* Steps display card */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-orange-400 shrink-0" />
+                  <h5 className="text-xs font-bold text-orange-400 leading-tight">
+                    {getNavSteps()[currentNavStep].title}
+                  </h5>
+                </div>
+                <p className="text-[11.5px] leading-relaxed text-slate-100 font-medium font-sans">
+                  {getNavSteps()[currentNavStep].text}
+                </p>
+
+                {/* Tactile detail assistive feedback */}
+                <div className="bg-indigo-950 border border-indigo-900 p-2.5 rounded-xl flex items-start gap-1.5">
+                  <span className="text-[11px] leading-none select-none">🌐</span>
+                  <div>
+                    <span className="text-[9px] text-amber-300 uppercase font-black block leading-none mb-1">
+                      {profileLanguage === "en" ? "TACTILE NAVIGATION NOTE" : "SARI ÇİZGİ / HİSSEDİLEBİLİR REHBER NOTU"}
+                    </span>
+                    <p className="text-[9.5px] text-indigo-200 leading-normal font-medium">
+                      {getNavSteps()[currentNavStep].assistive}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls bar */}
+              <div className="flex flex-wrap items-center justify-between gap-3.5 pt-2.5 border-t border-indigo-900/40">
+                <div className="flex items-center gap-1.5 font-sans">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (currentNavStep > 0) {
+                        const prev = currentNavStep - 1;
+                        setCurrentNavStep(prev);
+                        playNavStepValue(prev);
+                      }
+                    }}
+                    disabled={currentNavStep === 0}
+                    className="p-1.5 bg-indigo-950 hover:bg-slate-900 border border-indigo-800 disabled:opacity-30 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer text-white"
+                    title={profileLanguage === "en" ? "Previous Step" : "Önceki Adım"}
+                  >
+                    <SkipBack className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleSpeakNavStep()}
+                    className={`py-1.5 px-3.5 rounded-xl font-bold text-[10px] transition-all cursor-pointer flex items-center gap-1.5 border ${
+                      isNavSpeaking 
+                        ? "bg-rose-600 border-rose-500 hover:bg-rose-700 text-white animate-pulse" 
+                        : "bg-orange-500 border-orange-450 hover:bg-orange-600 text-white shadow-xs"
+                    }`}
+                  >
+                    <Volume2 className={`w-3.5 h-3.5 ${isNavSpeaking ? 'animate-bounce' : ''}`} />
+                    <span>
+                      {isNavSpeaking 
+                        ? (profileLanguage === "en" ? "Stop Speech" : "Sesi Durdur") 
+                        : (profileLanguage === "en" ? "Speak Step" : "Bu Adımı Oku")
+                      }
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (currentNavStep < 4) {
+                        const nxt = currentNavStep + 1;
+                        setCurrentNavStep(nxt);
+                        playNavStepValue(nxt);
+                      }
+                    }}
+                    disabled={currentNavStep === 4}
+                    className="p-1.5 bg-indigo-950 hover:bg-slate-900 border border-indigo-800 disabled:opacity-30 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer text-white"
+                    title={profileLanguage === "en" ? "Next Step" : "Sonraki Adım"}
+                  >
+                    <SkipForward className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => playNavFull()}
+                  className="px-3 py-1.5 bg-indigo-950 hover:bg-slate-900 text-slate-300 hover:text-white border border-indigo-800 text-[9.5px] font-extrabold uppercase rounded-xl transition-colors cursor-pointer"
+                >
+                  {profileLanguage === "en" ? "Read Full Route" : "Yolu Baştan Sona Dinle"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Messages timeline */}
       <div className="flex-1 p-4 overflow-y-auto space-y-4">

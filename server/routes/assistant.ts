@@ -4,10 +4,11 @@ import { ai } from "../services/geminiService";
 import { getLiveRates, getCurrencyInfo } from "../services/currencyService";
 import { getRuleBasedFallbackResponse } from "../services/fallbackEngine";
 import { sendError } from "../services/errorResponse";
+import { authMiddleware } from "../middleware/auth";
 
 const router = Router();
 
-router.post("/chat", async (req: Request, res: Response) => {
+router.post("/chat", authMiddleware, async (req: Request, res: Response) => {
   const { messages, flightData, accessibilityProfile } = req.body;
 
   const isEn = accessibilityProfile?.preferredLanguage === "en";

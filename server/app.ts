@@ -9,6 +9,7 @@ import currencyRouter from "./routes/currency";
 import weatherRouter from "./routes/weather";
 import emailRouter from "./routes/email";
 import passengerRouter from "./routes/passenger";
+import authRouter from "./routes/auth";
 
 const app = express();
 
@@ -72,6 +73,7 @@ app.use("/api/authority", apiLimiter, transportRouter); // Re-uses transport rou
 app.use("/api/currency", apiLimiter, currencyRouter);
 app.use("/api/weather", apiLimiter, weatherRouter);
 app.use("/api/email", apiLimiter, emailRouter);
+app.use("/api/auth", apiLimiter, authRouter);
 app.use("/api", apiLimiter, passengerRouter);
 
 export default app;

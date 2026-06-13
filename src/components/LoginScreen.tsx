@@ -11,7 +11,7 @@ import {
 import { AccessibilityProfile } from "../types";
 
 interface LoginScreenProps {
-  onLoginSuccess: (passengerName: string, accessibilityProfile?: AccessibilityProfile) => void;
+  onLoginSuccess: (passengerName: string, accessibilityProfile?: AccessibilityProfile, token?: string) => void;
 }
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
@@ -38,10 +38,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   // General UI States
   const [showKvkkModal, setShowKvkkModal] = React.useState(false);
   const [showError, setShowError] = React.useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = React.useState(false);
   const [isRegistering, setIsRegistering] = React.useState(false);
   const [sentEmailPreview, setSentEmailPreview] = React.useState<any | null>(null);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!kvkkAccepted) {
       setShowError("Devam etmek için KVKK Aydınlatma Metni'ni kabul etmelisiniz.");
@@ -51,15 +52,33 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       setShowError("E-posta adresi alanını doldurunuz.");
       return;
     }
+    if (!password) {
+      setShowError("Şifre alanını doldurunuz.");
+      return;
+    }
+
     setShowError(null);
-    const calculatedName = email.split("@")[0];
-    const capitalized = calculatedName.charAt(0).toUpperCase() + calculatedName.slice(1);
-    onLoginSuccess(capitalized, {
-      enabled: false,
-      type: "none",
-      kvkkChecked: kvkkAccepted,
-      preferredLanguage: preferredLanguage
-    });
+    setIsLoggingIn(true);
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        onLoginSuccess(data.user.name, data.user.accessibilityProfile, data.token);
+      } else {
+        setShowError(data.message || "Giriş başarısız. Lütfen bilgilerinizi kontrol ediniz.");
+      }
+    } catch (err: any) {
+      console.error("Giriş bağlantı hatası:", err);
+      setShowError("Giriş başarısız: Sunucu bağlantı hatası.");
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -106,32 +125,62 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     };
 
     try {
-      const response = await fetch("/api/email/send-welcome", {
+      // Step A: Register the credentials in server-side Firestore users collection
+      const authRegResponse = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: regEmail,
+          password: regPassword,
           name: regName,
           accessibilityProfile: profile
         })
       });
 
-      const data = await response.json();
-      if (data.success) {
-        setSentEmailPreview({
-          email: regEmail,
-          name: regName,
-          method: data.method,
-          html: data.emailContentHtml,
-          profile: profile
+      const authData = await authRegResponse.json();
+      if (!authRegResponse.ok || !authData.success) {
+        setShowError(authData.message || "Kayıt işlemi başarısız.");
+        setIsRegistering(false);
+        return;
+      }
+
+      const token = authData.token;
+
+      // Step B: Send the welcome/boarding confirmation email
+      try {
+        const response = await fetch("/api/email/send-welcome", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            email: regEmail,
+            name: regName,
+            accessibilityProfile: profile
+          })
         });
-      } else {
-        // Fallback to direct success if registration endpoint failed
-        onLoginSuccess(regName, profile);
+
+        const data = await response.json();
+        if (data.success) {
+          setSentEmailPreview({
+            email: regEmail,
+            name: regName,
+            token: token,
+            method: data.method,
+            html: data.emailContentHtml,
+            profile: profile
+          });
+        } else {
+          onLoginSuccess(regName, profile, token);
+        }
+      } catch (err: any) {
+        console.error("Welcome email delivery call failed:", err);
+        onLoginSuccess(regName, profile, token);
       }
     } catch (err: any) {
-      console.error("Welcome email delivery call failed:", err);
-      onLoginSuccess(regName, profile);
+      console.error("Kayıt esnasında bağlantı hatası:", err);
+      setShowError("Kayıt başarısız: Havalimanı sunucu bağlantı hatası.");
     } finally {
       setIsRegistering(false);
     }
@@ -156,7 +205,23 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     };
 
     if (provider === "Google") {
-      onLoginSuccess("Selim Yılmaz", defaultProfile);
+      // Background authentication for Google sandbox user
+      fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "selim@smartpass.co", password: "selim" })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          onLoginSuccess("Selim Yılmaz", defaultProfile, d.token);
+        } else {
+          onLoginSuccess("Selim Yılmaz", defaultProfile);
+        }
+      })
+      .catch(() => {
+        onLoginSuccess("Selim Yılmaz", defaultProfile);
+      });
     } else {
       onLoginSuccess("Dmitry Smirnov", defaultProfile);
     }
@@ -235,36 +300,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             </span>
           </div>
 
-          {/* Preferred Language Selector Segmented Control */}
-          <div className="flex flex-col gap-1.5 pb-2.5 border-b border-slate-100">
-            <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
-              🌐 Profil Dili / Preferred Language
-            </span>
-            <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-150">
-              <button
-                type="button"
-                onClick={() => setPreferredLanguage("tr")}
-                className={`py-2 text-[10px] font-extrabold rounded-lg transition-all cursor-pointer ${
-                  preferredLanguage === "tr"
-                    ? "bg-white text-indigo-950 shadow-xs ring-1 ring-slate-200/50"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                Türkçe (TR)
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreferredLanguage("en")}
-                className={`py-2 text-[10px] font-extrabold rounded-lg transition-all cursor-pointer ${
-                  preferredLanguage === "en"
-                    ? "bg-white text-indigo-950 shadow-xs ring-1 ring-slate-200/50"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                English (EN)
-              </button>
-            </div>
-          </div>
 
           {showError && (
             <div className="p-3 bg-rose-50 border border-rose-100 text-rose-700 rounded-xl text-xs flex items-start gap-2 animate-fade-in">
@@ -300,10 +335,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
               <button
                 type="submit"
-                className="w-full bg-indigo-900 hover:bg-indigo-800 text-white py-3 rounded-xl font-bold text-xs shadow-md shadow-indigo-950/25 active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                disabled={isLoggingIn}
+                className="w-full bg-indigo-900 hover:bg-indigo-800 text-white py-3 rounded-xl font-bold text-xs shadow-md shadow-indigo-950/25 active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <Fingerprint className="w-4 h-4" />
-                Güvenli Giriş Yap
+                {isLoggingIn ? "Oturum Doğrulanıyor..." : "Güvenli Giriş Yap"}
               </button>
             </form>
           ) : (
@@ -653,7 +689,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 </span>
               </div>
               <button 
-                onClick={() => onLoginSuccess(sentEmailPreview.name, sentEmailPreview.profile)}
+                onClick={() => onLoginSuccess(sentEmailPreview.name, sentEmailPreview.profile, sentEmailPreview.token)}
                 className="text-[10px] text-indigo-200 hover:text-white font-extrabold focus:outline-none bg-indigo-800/60 px-3 py-1.5 rounded-xl border border-indigo-700/50 min-h-[32px] flex items-center"
               >
                 Geç
@@ -704,7 +740,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             {/* Bottom confirm button */}
             <div className="p-4 bg-[#F8F9FA] border-t border-slate-200/60 shrink-0">
               <button
-                onClick={() => onLoginSuccess(sentEmailPreview.name, sentEmailPreview.profile)}
+                onClick={() => onLoginSuccess(sentEmailPreview.name, sentEmailPreview.profile, sentEmailPreview.token)}
                 className="w-full bg-indigo-900 hover:bg-indigo-850 text-white font-extrabold text-[11px] py-3 rounded-xl transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md min-h-[44px] cursor-pointer"
               >
                 Uygulama Paneline Devam Et →

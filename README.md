@@ -20,11 +20,16 @@ AeroAI, minimalist ve yüksek kontrastlı bir **Kozmik Gece (Cosmic Slate)** tas
 
 ---
 
-## 📱 Mobil & PWA (Progressive Web App) Özellikleri
+## 📱 Mobil PWA & %100 Native Paketleme (Capacitor)
 
-Uygulama, havalimanlarındaki zayıf internet bağlantısı durumlarında bile kesintisiz seyahat deneyimi sunması için kapsamlı bir mobil dönüşüm sürecinden geçirilmiştir:
+Uygulama, havalimanlarındaki zayıf internet bağlantısı durumlarında bile kesintisiz seyahat deneyimi sunması ve App Store / Play Store süreçlerine tam uyum sağlaması için kapsamlı bir mobil transformasyondan geçirilmiştir:
 
-### 📶 Çevrimdışı Biniş Kartı & API Önbelleği (Service Worker)
+### 📦 Eksiksiz Native Capacitor Entegrasyonu
+* **Native Platform Desteği**: Projede `capacitor.config.ts` yapılandırılmış, `android/` (Gradle projesi) ve `ios/` (Xcode projesi) native platform klasörleri tam sürüm olarak inşa edilmiştir.
+* **Native Kamera Tetikleyici (`@capacitor/camera`)**: Mobil tarayıcılarda veya doğrudan native sarmalayıcı (wrapper) içerisinde çalıştırıldığında, geleneksel WebRTC kameralarına ek olarak stabil native kamera API'lerini çağırarak biniş kartlarını kusursuz şekilde yakalar.
+* **Native Push Bildirimleri (`@capacitor/push-notifications`)**: Native mobil derlemelerde uçuş rötarları, kapı değişiklikleri ve acil durum kriz anlarında arka planda olsanız dahi cihaza anlık push bildirimi gönderilir. Web görünümünde ise sessizce web standartlarına sorunsuz downgrade olur.
+
+### 📶 Çevrimdışı Biniş Kartı & API Önbelleği (Service Worker & Zustand)
 * **Offline Caching (Service Worker)**: `/public/service-worker.js` üzerinde özel bir akıllı önbellek mimarisi kurgulanmıştır. Uygulama kabuğu (app shell), yazı tipleri ve statik varlıklar **Cache-First** politikasıyla yüklenir.
 * **Canlı Veri Önbelleği**: Havalimanı otoritelerinden çekilen canlı biniş kartı, uçuş verileri ve simülatör durumları **Network-First, Cache-Fallback** algoritmasıyla önbelleğe alınır. İnternet kopsa dahi biniş kartınız ve son uçuş durumunuz ekranda kalmaya devam eder!
 * **Dinamik Bağlantı Durumu & Çevrimdışı Bento Kartı**: Uygulama üst barda yer alan entegre **Sinyal Monitörü (WifiOff)** ile canlı şebeke durumunu izler. İnternet kesildiğinde kullanıcıyı uyararak son başarılı senkronizasyonda korunan bento kartını ve uçuş verilerini güvenli yerel önbellekten göstermeye devam eder.
@@ -34,13 +39,22 @@ Uygulama, havalimanlarındaki zayıf internet bağlantısı durumlarında bile k
 * **Mobil Çözünürlük İkonları**: `192x192` ve `512x512` boyutlarında havacılık temalı, göze hitap eden gerçek yüksek çözünürlüklü PNG ikon seti `scripts/generate-icons.js` yardımıyla inşaat aşamasında derlenmektedir.
 * **Safe-Area Insets (çentik uyumu)** ve `apple-mobile-web-app` meta etiketleri eklenerek iOS ve Android cihazlardaki yerleşik tarayıcılarda tam ekran (fullscreen) kusursuz çentik uyumu sağlanmıştır.
 
-### 🔋 Capacitor ile Native Push Bildirimleri & Kamera Entegrasyonu
-* **Native Kamera Tetikleyici (`@capacitor/camera`)**: Mobil tarayıcılarda veya doğrudan native sarmalayıcı (wrapper) içerisinde çalıştırıldığında, geleneksel WebRTC kameralarına ek olarak stabil native kamera API'lerini çağırarak biniş kartlarını kusursuz şekilde yakalar.
-* **Native Push Bildirimleri (`@capacitor/push-notifications`)**: Native mobil derlemelerde uçuş rötarları, kapı değişiklikleri ve acil durum kriz anlarında arka planda olsanız dahi cihaza anlık push gönderilir. Web görünümünde ise uyarısız ve sessiz bir şekilde hata fırlatmadan web standartlarına sorunsuz downgrade olur.
-
 ---
 
-## ✨ Öne Çıkan Diğer Özellikler
+## ✨ Öne Çıkan Gelişmiş Özellikler
+
+### 🚀 Optimize Edilmiş Kod Bölümleme (React Lazy Loading)
+* **Yüksek Performanslı Yükleme**: Büyük frontend bileşenleri ve ekranları (`TerminalMap.tsx` ~42 KB, `LoginScreen.tsx` ~36 KB, `AssistantChat.tsx` ~19 KB ve `ScannerScreen.tsx`) ana pakete yük bindirmemesi için **React.lazy** ve **Suspense** ile asenkron / dinamik olarak yüklenecek şekilde optimize edilmiştir.
+* **Etkileşimli Yükleme Göstergeleri**: Sayfalar arası geçiş esnasında minimalist mikro-spinner ve marka yükleme arayüzleri eşlik eder.
+
+### 📧 Dijital Biniş Kartı E-Posta Gönderme Servisi (SMTP & Live Simulation)
+* **Anlık Biniş Kartı Gönderimi**: Kullanıcı, dashboard üzerinden tek tıkla **"Biniş Kartımı E-Posta Gönder"** butonunu tetikleyebilir.
+* **Güvenli SMTP ve Şık Tasarım**: Sunucu tarafındaki `nodemailer` entegrasyonu yardımıyla, SMTP bilgileri mevcutsa gerçek e-posta sevk edilir. Şık biniş kartı şablonu havalimanı logoları, biniş / koltuk ayrıntıları, canlı geçiş bekleme süreleri, aktif erişilebilirlik yönergeleri ve KVKK minimizasyon bildirimi içerir.
+* **İnteraktif Simülatör Ekranı**: Sandbox geliştirme süreçlerinde veya SMTP sunucusu yapılandırılmamışsa, sistem otomatik olarak **Simüle Edilmiş E-Posta Önizlemesi** adında hareketli, şık bir mockup ekranı açarak kullanıcıya gönderilen e-postanın canlı HTML içeriğini interaktif şekilde gösterir.
+
+### 🔒 Üretim Sınırları & Güvenlik Kilidi (Production Environment Locks)
+* **Simülasyon Çift Kilidi**: Havalimanı simülatörünün `POST /api/simulation/update` düğmesi gibi, durum izleme sağlayan `GET /api/simulation/state` ucu da üretim ortamlarında (`NODE_ENV=production`) koruma altına alınmıştır. Yönetici dışındaki harici isteklerin sızmasını önlemek adına, geçerli bir `x-simulation-api-key` başlığı gönderilmediğinde istekleri `403 Forbidden` ile engeller.
+* **BCBP Parser Doğruluğu**: Geçersiz veya tanımsız biniş kartı barkodu okutulduğunda uçağa yerleşim için sahte TK1903 fallback kartı üretilmesi engellenmiş; biniş esnasında hatalı veri işleme riskini sıfıra indirmek adına `400 Bad Request` hatasıyla birlikte *"Geçersiz biniş kartı veya tanımsız barkod formatı."* uyarısı fırlatılacak şekilde sistem sıkılaştırılmıştır.
 
 ### 🛡️ Gelişmiş KVKK Gizlilik Denetim Kütüğü (Privacy Audit Report)
 * **Kişisel Veri Şeffaflığı**: KVKK/GDPR regülasyonları ile tam uyumlu olarak, sistemin (AeroAI asistanı, Bilet Okuyucu, Güvenlik geçişleri) yolcunun kişisel veya tıbbi yardım verilerine eriştiği anları saniye saniye takip eden canlı bir **Gizlilik Denetim Raporu** entegre edilmiştir.

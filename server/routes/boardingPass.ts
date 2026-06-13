@@ -14,6 +14,10 @@ router.post("/", async (req: Request, res: Response) => {
 
   const parseResult = parseBoardingPassText(rawText);
 
+  if (!parseResult) {
+    return sendError(res, 400, "INVALID_BCBP_FORMAT", "Geçersiz biniş kartı veya tanımsız barkod formatı.");
+  }
+
   if (parseResult.custom && parseResult.data) {
     const parsedData = parseResult.data;
     if (parsedData.flightNumber) {
