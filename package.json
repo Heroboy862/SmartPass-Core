@@ -9,7 +9,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "eslint . && tsc --noEmit",
-    "test": "cross-env NODE_ENV=test tsx --test tests/**/*.test.ts"
+    "test": "cross-env NODE_ENV=test tsx --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "@capacitor/android": "^8.4.0",
