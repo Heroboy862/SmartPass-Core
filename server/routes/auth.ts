@@ -3,35 +3,15 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { adminDb, createAuditLog } from "../services/firestoreSync";
 import { sendError } from "../services/errorResponse";
+import { UserService } from "../services/userService";
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || "smartpass-super-secret-key-2026";
-
-// High fidelity in-memory backup and verification store to guarantee registration and login work flawlessly even if database connections fail
-const IN_MEMORY_USERS = new Map<string, any>();
 
 // Helper to securely hash passenger credentials
 export function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
-
-// Prepopulate Selim Yılmaz so they can login immediately
-IN_MEMORY_USERS.set("usr_selim_yilmaz_smartpass_co", {
-  id: "usr_selim_yilmaz_smartpass_co",
-  email: "selim.yilmaz@smartpass.co",
-  passwordHash: hashPassword("password123"),
-  name: "Selim Yılmaz",
-  accessibilityProfile: {
-    enabled: true,
-    type: "WCHR",
-    details: "Tekerlekli sandalye desteği talep edildi (Rampa/Asansör erişilebilirliği)",
-    guardianName: "Ayşe Yılmaz",
-    guardianPhone: "+90 532 111 22 33",
-    preferredLanguage: "tr"
-  },
-  flightNumber: "TK-1903",
-  createdAt: new Date().toISOString()
-});
 
 /**
  * Helper to normalize and slugify emails for secure Firestore document IDs
@@ -63,55 +43,19 @@ router.post("/register", async (req: Request, res: Response) => {
       preferredLanguage: "tr"
     };
 
-    // Check if user already exists
-    let userExists = false;
+    const userSvc = UserService.getInstance();
+    const existingUser = await userSvc.getUserByEmail(cleanEmail);
 
-    if (adminDb) {
-      try {
-        const userRef = adminDb.collection("users").doc(docId);
-        const userDoc = await userRef.get();
-        if (userDoc.exists) {
-          userExists = true;
-        }
-      } catch (dbErr: any) {
-        console.warn("[AUTH REGISTER] Failed reading from adminDb, falling back to in-memory check:", dbErr.message);
-        userExists = IN_MEMORY_USERS.has(docId);
-      }
-    } else {
-      userExists = IN_MEMORY_USERS.has(docId);
-    }
-
-    if (userExists) {
+    if (existingUser) {
       return sendError(res, 400, "USER_EXISTS", "Bu e-posta adresi ile kayıtlı bir kullanıcı zaten mevcut.");
     }
 
-    // Prepare user payload
-    const newUserPayload = {
-      id: docId,
-      email: cleanEmail,
-      passwordHash: hashedPassword,
-      name: name.trim(),
-      accessibilityProfile: resolvedProfile,
-      flightNumber: "TK-1903", // Default starter flight
-      createdAt: new Date().toISOString()
-    };
-
-    // Store in-memory regardless of adminDb to ensure we always have a working copy!
-    IN_MEMORY_USERS.set(docId, newUserPayload);
-
-    if (adminDb) {
-      try {
-        const userRef = adminDb.collection("users").doc(docId);
-        await userRef.set(newUserPayload);
-        console.log(`[AUTH] Registered new user ${cleanEmail} directly via Firestore.`);
-      } catch (dbErr: any) {
-        console.warn("[AUTH REGISTER] Failed writing to adminDb, saved to memory fallback:", dbErr.message);
-      }
-    }
+    // Register user securely through User Service Repository
+    const newUser = await userSvc.createUser(cleanEmail, hashedPassword, name, resolvedProfile);
 
     // Generate signed JWT token
     const token = jwt.sign(
-      { userId: docId, email: cleanEmail, name: name.trim() },
+      { userId: newUser.id, email: newUser.email, name: newUser.name },
       JWT_SECRET,
       { expiresIn: "24h" }
     );
@@ -120,7 +64,7 @@ router.post("/register", async (req: Request, res: Response) => {
     try {
       await createAuditLog(
         "USER_PORTAL",
-        name.trim(),
+        newUser.name,
         "PROFILE_CREATE",
         `Yeni kurumsal yolcu kaydı oluşturuldu (${cleanEmail}). Güvenlik anahtarı imzalandı.`
       );
@@ -132,10 +76,10 @@ router.post("/register", async (req: Request, res: Response) => {
       success: true,
       token,
       user: {
-        id: docId,
-        name: name.trim(),
-        email: cleanEmail,
-        accessibilityProfile: resolvedProfile
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        accessibilityProfile: newUser.accessibilityProfile
       }
     });
 
@@ -157,53 +101,16 @@ router.post("/login", async (req: Request, res: Response) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
-  const docId = getEmailDocId(cleanEmail);
   const hashedPassword = hashPassword(password);
 
   try {
-    let matchedUser: any = null;
+    const userSvc = UserService.getInstance();
+    const matchedUser = await userSvc.validateUserCredentials(cleanEmail, hashedPassword);
 
-    if (adminDb) {
-      try {
-        const userRef = adminDb.collection("users").doc(docId);
-        const userDoc = await userRef.get();
-        
-        if (userDoc.exists) {
-          const ud = userDoc.data();
-          if (ud.passwordHash === hashedPassword) {
-            matchedUser = ud;
-          } else {
-            return sendError(res, 401, "AUTH_FAILED", "Girilen e-posta şifre kombinasyonu hatalıdır.");
-          }
-        }
-      } catch (dbErr: any) {
-        console.warn("[AUTH LOGIN] Failed reading from adminDb, using in-memory fallback:", dbErr.message);
-      }
-    }
-
-    // High fidelity sandbox fallback for seamless evaluation when Firestore is unprovisioned, offline, or restricted
     if (!matchedUser) {
-      const memUser = IN_MEMORY_USERS.get(docId);
-      if (memUser) {
-        if (memUser.passwordHash === hashedPassword) {
-          matchedUser = memUser;
-        } else {
-          return sendError(res, 401, "AUTH_FAILED", "Girilen e-posta şifre kombinasyonu hatalıdır.");
-        }
-      } else if (cleanEmail === "selim.yilmaz@smartpass.co" || cleanEmail === "selim@smartpass.co") {
-        matchedUser = {
-          id: "usr_selim_yilmaz_smartpass_co",
-          email: "selim.yilmaz@smartpass.co",
-          name: "Selim Yılmaz",
-          accessibilityProfile: {
-            enabled: true,
-            type: "WCHR",
-            details: "Tekerlekli sandalye desteği talep edildi (Rampa/Asansör erişilebilirliği)",
-            guardianName: "Ayşe Yılmaz",
-            guardianPhone: "+90 532 111 22 33",
-            preferredLanguage: "tr"
-          }
-        };
+      const userExists = await userSvc.getUserByEmail(cleanEmail);
+      if (userExists) {
+        return sendError(res, 401, "AUTH_FAILED", "Girilen e-posta şifre kombinasyonu hatalıdır.");
       } else {
         return sendError(res, 404, "USER_NOT_FOUND", "Bu kullanıcı kayıtlı değil veya yerel veritabanında bulunamadı.");
       }
