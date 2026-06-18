@@ -32,6 +32,7 @@ interface FlightState {
 
   // Unsubscribe function for active listener
   flightUnsubscribe: (() => void) | null;
+  flightPollInterval: any | null;
 
   // Setters
   initStore: () => Promise<void>;
@@ -142,6 +143,7 @@ export const useFlightStore = create<FlightState>((set, get) => {
     ],
     isChatLoading: false,
     flightUnsubscribe: null,
+    flightPollInterval: null,
 
     initStore: async () => {
       const { logActivity } = get();
@@ -421,76 +423,185 @@ export const useFlightStore = create<FlightState>((set, get) => {
       const { stopFlightSync, addSyncLog, isOnline } = get();
       stopFlightSync();
 
+      const startFallbackPolling = () => {
+        if (get().flightPollInterval) return;
+        addSyncLog(`DHMİ yerel bff polling fallback devrede: flights/${flightNumber}`);
+        
+        const intervalId = setInterval(async () => {
+          try {
+            const headers: Record<string, string> = {};
+            const token = get().jwtToken;
+            if (token) {
+              headers["Authorization"] = `Bearer ${token}`;
+            }
+            const res = await fetch("/api/passenger/dashboard", { headers });
+            if (res.ok) {
+              const resData = await res.json();
+              if (resData.success && resData.flight) {
+                const data = resData.flight;
+                
+                // Only update if it's the flight we expect
+                if (data.flightNumber === flightNumber) {
+                  set((state) => {
+                    const prev = state.flightData;
+                    if (!prev || prev.flightNumber !== data.flightNumber) return {};
+
+                    const updatedFlight = {
+                      ...prev,
+                      gate: data.gate ?? prev.gate,
+                      boardingStatus: data.boardingStatus ?? prev.boardingStatus,
+                      securityQueueTime: data.securityQueueTime ?? prev.securityQueueTime,
+                      delayReason: data.delayReason ?? (prev as any).delayReason,
+                      source: data.source ?? (prev as any).source,
+                      schedule: data.schedule ?? (prev as any).schedule,
+                      disruption: data.disruption !== undefined ? data.disruption : (prev as any).disruption
+                    };
+
+                    // Update simulator state too so sidebar controls stay in sync
+                    if (data.flightNumber === state.simState.flightNumber) {
+                      set({
+                        simState: {
+                          flightNumber: data.flightNumber,
+                          boardingStatus: data.boardingStatus,
+                          securityQueueTime: data.securityQueueTime,
+                          gate: data.gate,
+                          delayReason: data.delayReason || state.simState.delayReason
+                        }
+                      });
+                    }
+
+                    // Trigger KVKK check inline
+                    if (updatedFlight.boardingStatus === "Closed") {
+                      sessionStorage.clear();
+                      setTimeout(() => {
+                        set({
+                          passengerName: null,
+                          jwtToken: null,
+                          accessibilityProfile: null,
+                          flightData: null,
+                          showKvkkWipeModal: true,
+                          activeScreen: "login",
+                          messages: [
+                            {
+                              id: "welcome",
+                              sender: "assistant",
+                              text: "Merhaba! Ben akıllı seyahat asistanınız AeroAI. ✈️\n\nDHMİ, İGA, TAV ve HEAŞ veri sistemlerine canlı olarak bağlıyım. Yolculuğunuzun zaman planlamasını kolaylaştırmak, rötarlar/iptaller gibi kriz durumlarında haklarınızı korumak ve kapı yolunuzu bulmak için yanınızdayım.\n\nNasıl yardımcı olabilirim?",
+                              timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                            }
+                          ]
+                        });
+                        get().logActivity("Uçuş tamamlandı. KVKK veri saklama limiti uyarınca tarayıcıdaki tüm kişisel veriler kalıcı olarak imha edildi.");
+                      }, 10);
+                    }
+
+                    // Save to storage
+                    sessionStorage.setItem("secure_flightData", JSON.stringify(updatedFlight));
+                    return { flightData: updatedFlight };
+                  });
+                }
+              }
+            }
+          } catch (pollingErr: any) {
+            console.warn("Fallback polling error:", pollingErr.message);
+          }
+        }, 5000);
+
+        set({ flightPollInterval: intervalId });
+      };
+
       if (!isOnline) {
         addSyncLog(`DHMİ çevrimdışı önbellek modu devrede: flights/${flightNumber}`);
+        startFallbackPolling();
         return;
       }
 
-      const flightRef = doc(db, "flights", flightNumber);
-      addSyncLog(`DHMİ Canlı takibi başlatıldı: flights/${flightNumber}`);
+      // Check if we have a dummy fallback config (e.g., Firestore is fully offline on purpose)
+      // If we are on dummy fallback key, we skip Firestore completely to save connections & avoid errors
+      const isDummyConfig = !db || (db as any)._databaseId?.projectId === "dummy-fallback";
+      if (isDummyConfig) {
+        startFallbackPolling();
+        return;
+      }
 
-      const unsubscribe = onSnapshot(flightRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          addSyncLog(`DHMİ/Bulut veri güncellemesi alındı: Kapı ${data.gate ?? "—"}, Durum: ${data.boardingStatus ?? "—"}`);
-          
-          set((state) => {
-            const prev = state.flightData;
-            if (!prev || prev.flightNumber !== data.flightNumber) return {};
+      try {
+        const flightRef = doc(db, "flights", flightNumber);
+        addSyncLog(`DHMİ Canlı takibi başlatıldı: flights/${flightNumber}`);
 
-            const updatedFlight = {
-              ...prev,
-              gate: data.gate ?? prev.gate,
-              boardingStatus: data.boardingStatus ?? prev.boardingStatus,
-              securityQueueTime: data.securityQueueTime ?? prev.securityQueueTime,
-              delayReason: data.delayReason ?? (prev as any).delayReason,
-              source: data.source ?? (prev as any).source,
-              schedule: data.schedule ?? (prev as any).schedule,
-              disruption: data.disruption !== undefined ? data.disruption : (prev as any).disruption
-            };
+        const unsubscribe = onSnapshot(flightRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            addSyncLog(`DHMİ/Bulut veri güncellemesi alındı: Kapı ${data.gate ?? "—"}, Durum: ${data.boardingStatus ?? "—"}`);
+            
+            set((state) => {
+              const prev = state.flightData;
+              if (!prev || prev.flightNumber !== data.flightNumber) return {};
 
-            // Trigger KVKK check inline
-            if (updatedFlight.boardingStatus === "Closed") {
-              sessionStorage.clear();
-              setTimeout(() => {
-                set({
-                  passengerName: null,
-                  jwtToken: null,
-                  accessibilityProfile: null,
-                  flightData: null,
-                  showKvkkWipeModal: true,
-                  activeScreen: "login",
-                  messages: [
-                    {
-                      id: "welcome",
-                      sender: "assistant",
-                      text: "Merhaba! Ben akıllı seyahat asistanınız AeroAI. ✈️\n\nDHMİ, İGA, TAV ve HEAŞ veri sistemlerine canlı olarak bağlıyım. Yolculuğunuzun zaman planlamasını kolaylaştırmak, rötarlar/iptaller gibi kriz durumlarında haklarınızı korumak ve kapı yolunuzu bulmak için yanınızdayım.\n\nNasıl yardımcı olabilirim?",
-                      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                    }
-                  ]
-                });
-                get().logActivity("Uçuş tamamlandı. KVKK veri saklama limiti uyarınca tarayıcıdaki tüm kişisel veriler kalıcı olarak imha edildi.");
-              }, 10);
-            }
+              const updatedFlight = {
+                ...prev,
+                gate: data.gate ?? prev.gate,
+                boardingStatus: data.boardingStatus ?? prev.boardingStatus,
+                securityQueueTime: data.securityQueueTime ?? prev.securityQueueTime,
+                delayReason: data.delayReason ?? (prev as any).delayReason,
+                source: data.source ?? (prev as any).source,
+                schedule: data.schedule ?? (prev as any).schedule,
+                disruption: data.disruption !== undefined ? data.disruption : (prev as any).disruption
+              };
 
-            // Save to storage
-            sessionStorage.setItem("secure_flightData", JSON.stringify(updatedFlight));
-            return { flightData: updatedFlight };
-          });
-        }
-      }, (error) => {
-        console.error("Firestore flights onSnapshot error:", error);
-        addSyncLog(`DHMİ bağlantı pürüzü: ${error.message}`);
-      });
+              // Trigger KVKK check inline
+              if (updatedFlight.boardingStatus === "Closed") {
+                sessionStorage.clear();
+                setTimeout(() => {
+                  set({
+                    passengerName: null,
+                    jwtToken: null,
+                    accessibilityProfile: null,
+                    flightData: null,
+                    showKvkkWipeModal: true,
+                    activeScreen: "login",
+                    messages: [
+                      {
+                        id: "welcome",
+                        sender: "assistant",
+                        text: "Merhaba! Ben akıllı seyahat asistanınız AeroAI. ✈️\n\nDHMİ, İGA, TAV ve HEAŞ veri sistemlerine canlı olarak bağlıyım. Yolculuğunuzun zaman planlamasını kolaylaştırmak, rötarlar/iptaller gibi kriz durumlarında haklarınızı korumak ve kapı yolunuzu bulmak için yanınızdayım.\n\nNasıl yardımcı olabilirim?",
+                        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      }
+                    ]
+                  });
+                  get().logActivity("Uçuş tamamlandı. KVKK veri saklama limiti uyarınca tarayıcıdaki tüm kişisel veriler kalıcı olarak imha edildi.");
+                }, 10);
+              }
 
-      set({ flightUnsubscribe: unsubscribe });
+              // Save to storage
+              sessionStorage.setItem("secure_flightData", JSON.stringify(updatedFlight));
+              return { flightData: updatedFlight };
+            });
+          }
+        }, (error) => {
+          console.warn("Firestore flights onSnapshot error, falling back to BFF polling:", error);
+          addSyncLog(`DHMİ bağlantı pürüzü, yerel REST sync devrede: ${error.message}`);
+          startFallbackPolling();
+        });
+
+        set({ flightUnsubscribe: unsubscribe });
+      } catch (err: any) {
+        console.warn("Failed to subscribe to Firestore, falling back to BFF polling:", err);
+        startFallbackPolling();
+      }
     },
 
     stopFlightSync: () => {
-      const { flightUnsubscribe } = get();
+      const { flightUnsubscribe, flightPollInterval } = get();
       if (flightUnsubscribe) {
-        flightUnsubscribe();
+        try {
+          flightUnsubscribe();
+        } catch (e) {
+          // ignore
+        }
         set({ flightUnsubscribe: null });
+      }
+      if (flightPollInterval) {
+        clearInterval(flightPollInterval);
+        set({ flightPollInterval: null });
       }
     },
 

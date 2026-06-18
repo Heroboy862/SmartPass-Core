@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, disableNetwork } from "firebase/firestore";
 
 // Safe import of gitignored config using Vite's eager glob import mapped through standard type bypass.
 // This prevents compilation and bundler failures on GitHub (CI) where the config file is not committed.
@@ -20,3 +20,11 @@ const firebaseConfig = configPaths.length > 0
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
+
+// Automatically disable network calls for dummy/fallback config to prevent 10s connection timeout errors
+if (firebaseConfig.apiKey === "dummy-fallback-key-for-ci") {
+  disableNetwork(db).catch((err) => {
+    console.warn("[Firestore] Failed to disable network for dummy config:", err);
+  });
+}
+
